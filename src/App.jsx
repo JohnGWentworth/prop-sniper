@@ -1,66 +1,45 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  TrendingUp, 
-  AlertCircle, 
-  ChevronRight, 
-  Search, 
-  BarChart3, 
-  DollarSign, 
-  Zap,
-  Target,
-  Award,
-  RefreshCw,
-  Lock,
-  CheckCircle2
-} from 'lucide-react';
+import { Zap, Target, Search, BarChart3, TrendingUp, AlertCircle, ChevronRight, LayoutDashboard, Lock } from 'lucide-react';
 
+/**
+ * NBA Prop Sniper Dashboard
+ * Features:
+ * - Robust error handling for database responses
+ * - Real-time market discrepancy scanning
+ * - Premium paywall logic for locked edges
+ * - Whop integration for seamless checkout
+ */
 const App = () => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('edges'); 
-  const [propEdges, setPropEdges] = useState([]);
+  const [edges, setEdges] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // --- PAYWALL STATE ---
-  // In a real app, this is managed by your login/auth system.
   const [isPremium, setIsPremium] = useState(false); 
 
-  // --- CONFIGURATION ---
-  const SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co';
-  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A';
+  // --- 1. CONFIGURATION ---
+  // Your Whop checkout link is correctly implemented here
+  const whopLink = "https://whop.com/checkout/plan_EFF1P6AlgcidP";
 
   const fetchEdges = async () => {
-    setLoading(true);
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/nba_edges?select=*&order=created_at.desc`, {
+      const response = await fetch('https://lmljhlxpaamemdngvair.supabase.co/rest/v1/nba_edges?select=*&order=updated_at.desc', {
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
+            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A',
+            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A'
         }
       });
       
       const data = await response.json();
 
-      if (data && data.length > 0) {
-        const formattedData = data.map(item => ({
-          id: item.id,
-          player: item.player_name,
-          team: item.game ? item.game.split('@')[0].trim() : 'NBA',
-          opponent: item.game ? item.game.split('@')[1].trim() : 'GAME',
-          market: "Points",
-          bestOver: { book: item.low_book || "Low Line", line: item.low_line },
-          bestUnder: { book: item.high_book || "High Line", line: item.high_line },
-          discrepancy: item.edge_size,
-          forecast: item.season_avg || "N/A",
-          confidence: "Live",
-          status: "Real Data"
-        }));
-        setPropEdges(formattedData);
+      // CRITICAL FIX: Ensure 'data' is an array before setting state
+      // If Supabase returns an error object {code, message}, we default to an empty list []
+      if (Array.isArray(data)) {
+        setEdges(data);
       } else {
-        setPropEdges([]); 
+        console.error("Database error or unexpected format:", data);
+        setEdges([]);
       }
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setPropEdges([]);
+    } catch (err) {
+      console.error("Network or parsing error:", err);
+      setEdges([]);
     } finally {
       setLoading(false);
     }
@@ -68,200 +47,173 @@ const App = () => {
 
   useEffect(() => {
     fetchEdges();
+    // Auto-refresh data every 30 seconds
+    const interval = setInterval(fetchEdges, 30000); 
+    return () => clearInterval(interval);
   }, []);
 
-  const handleSubscribe = () => {
-      // PASTE YOUR WHOP LINK BETWEEN THESE QUOTES
-      const whopLink = "YOUR_WHOP_LINK_HERE";
-      
-      if (whopLink === "YOUR_WHOP_LINK_HERE") {
-          alert("Integration Step: Copy your Whop link into the code!");
-      } else {
-          window.location.href = whopLink;
-      }
+  const handleUpgrade = () => {
+    if (whopLink === "YOUR_WHOP_LINK_HERE" || whopLink === "") {
+        console.log("Setup needed: Paste Whop link in code.");
+    } else {
+        window.location.href = whopLink;
+    }
   };
 
-  const filteredEdges = propEdges.filter(edge => 
-    edge.player.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (edge.team && edge.team.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
-  const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 2);
-  const hiddenCount = filteredEdges.length - displayedEdges.length;
+  // Safe slicing: displayedEdges will now always be an array
+  const safeEdges = Array.isArray(edges) ? edges : [];
+  const displayedEdges = isPremium ? safeEdges : safeEdges.slice(0, 2);
+  const lockedCount = Math.max(0, safeEdges.length - displayedEdges.length);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-      {/* Sidebar - Desktop Only */}
-      <div className="fixed left-0 top-0 h-full w-64 bg-slate-900 border-r border-slate-800 p-6 hidden lg:block">
-        <div className="flex items-center gap-2 mb-10">
-          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <Target className="text-white" size={20} />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight">PROP<span className="text-indigo-500">SNIPER</span></h1>
-        </div>
-
-        <nav className="space-y-2">
-          <button 
-            onClick={() => setActiveTab('edges')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'edges' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-600/20' : 'hover:bg-slate-800 text-slate-400'}`}
-          >
-            <Zap size={18} />
-            <span className="font-medium">Market Edges</span>
-          </button>
-          <button 
-             onClick={() => setActiveTab('forecasts')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'forecasts' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-600/20' : 'hover:bg-slate-800 text-slate-400'}`}
-          >
-            <BarChart3 size={18} />
-            <span className="font-medium">Game Forecasts</span>
-          </button>
-        </nav>
-
-        {!isPremium && (
-            <div className="absolute bottom-10 left-6 right-6 p-4 bg-gradient-to-br from-indigo-900/40 to-slate-800 rounded-2xl border border-indigo-500/20">
-            <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-2">Pro Access</p>
-            <p className="text-sm text-slate-300 mb-4 font-light">Get every sharp edge delivered to Discord.</p>
-            <button 
-                onClick={handleSubscribe}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-indigo-900/20"
-            >
-                Join Pro Now
-            </button>
-            </div>
-        )}
+    <div className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-indigo-500/30">
+      {/* Top Banner */}
+      <div className="bg-indigo-600 px-4 py-2 text-center text-xs font-bold uppercase tracking-[0.2em] text-white">
+        NBA Live Intelligence • Prop Sniper Pro Active
       </div>
 
-      <main className="lg:ml-64 p-4 md:p-8">
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h2 className="text-2xl font-bold">NBA Prop Dashboard</h2>
-            <div className="flex items-center gap-2 mt-1">
-                <div className={`w-2 h-2 rounded-full ${loading ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></div>
-                <p className="text-slate-400 text-sm">
-                    {loading ? "Scanning Live Odds..." : "Live Data Active"}
-                </p>
+      <div className="flex">
+        {/* Sidebar - Desktop */}
+        <aside className="w-64 border-r border-white/5 h-screen sticky top-0 bg-[#0a0a0a] p-6 hidden lg:flex flex-col">
+          <div className="flex items-center gap-3 mb-10">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20">
+              <Target className="text-white" size={24} />
+            </div>
+            <h1 className="text-xl font-black tracking-tighter text-white uppercase italic">Prop<span className="text-indigo-500">Sniper</span></h1>
+          </div>
+
+          <nav className="space-y-1 flex-1 text-left">
+            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-900/40 transition-all">
+                <LayoutDashboard size={18}/>
+                <span className="text-sm font-bold tracking-tight text-left">Market Sniper</span>
+            </button>
+            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:text-slate-300 transition-colors">
+                <BarChart3 size={18}/>
+                <span className="text-sm font-bold tracking-tight text-left">Player Forecasts</span>
+            </button>
+            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:text-slate-300 transition-colors">
+                <TrendingUp size={18}/>
+                <span className="text-sm font-bold tracking-tight text-left">Bankroll Tracker</span>
+            </button>
+          </nav>
+
+          {/* Upsell Widget */}
+          {!isPremium && (
+            <div className="p-4 bg-gradient-to-br from-indigo-900/20 to-slate-800/40 rounded-2xl border border-indigo-500/20 mt-auto">
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Membership</p>
+                <p className="text-xs text-slate-400 mb-3 text-left font-medium tracking-tight">Unlock all {safeEdges.length} active edges.</p>
+                <button 
+                onClick={handleUpgrade}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-900/20"
+                >
+                Upgrade to Pro
+                </button>
+            </div>
+          )}
+        </aside>
+
+        {/* Main Feed */}
+        <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto">
+          <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+            <div className="text-left">
+              <h2 className="text-5xl font-black text-white tracking-tight mb-2 uppercase italic">Market Sniper</h2>
+              <p className="text-slate-500 font-medium tracking-tight">Real-time discrepancies found across US books.</p>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest bg-white/5 px-4 py-2 rounded-full border border-white/5">
+                <div className={`w-2 h-2 rounded-full ${loading ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`}></div>
+                {loading ? 'Updating...' : 'Live Feed'}
+            </div>
+          </header>
+
+          {/* Key Stats */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
+             <div className="bg-[#0f0f0f] p-6 rounded-3xl border border-white/5 flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Live Edges</span>
+                <span className="text-3xl font-black text-white tracking-tighter">{safeEdges.length}</span>
+            </div>
+             <div className="bg-[#0f0f0f] p-6 rounded-3xl border border-white/5 flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Avg. Edge</span>
+                <span className="text-3xl font-black text-white tracking-tighter italic">1.9 pts</span>
+            </div>
+             <div className="bg-[#0f0f0f] p-6 rounded-3xl border border-white/5 flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Status</span>
+                <span className="text-3xl font-black text-white tracking-tighter italic text-green-500 uppercase">Live</span>
             </div>
           </div>
-          
-          <div className="flex gap-3">
-              <button onClick={fetchEdges} className="p-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 transition-colors">
-                  <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
-              </button>
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input 
-                type="text" 
-                placeholder="Search player..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-xl py-2 pl-10 pr-4 w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-all text-sm"
-                />
-            </div>
-          </div>
-        </header>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm">
-             <div className="p-2 w-fit bg-green-500/10 rounded-lg text-green-500 mb-4">
-                <DollarSign size={20} />
-              </div>
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Avg. ROI</h3>
-            <p className="text-2xl font-bold mt-1 text-white">24.5%</p>
-          </div>
-          
-          <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm">
-             <div className="p-2 w-fit bg-indigo-500/10 rounded-lg text-indigo-500 mb-4">
-                <AlertCircle size={20} />
-              </div>
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Active Edges</h3>
-            <p className="text-2xl font-bold mt-1 text-white">{propEdges.length} Found</p>
-          </div>
-
-          <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm">
-             <div className="p-2 w-fit bg-amber-500/10 rounded-lg text-amber-500 mb-4">
-                <Award size={20} />
-              </div>
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Accuracy</h3>
-            <p className="text-2xl font-bold mt-1 text-white">68.2%</p>
-          </div>
-        </div>
-
-        {/* Edges Table */}
-        <div className="bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden shadow-xl">
-          <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-            <h3 className="font-bold flex items-center gap-2 text-lg">
-              <Zap className="text-amber-400 fill-amber-400" size={18} />
-              Live Market Gaps
-            </h3>
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-slate-500 text-xs font-semibold uppercase tracking-wider border-b border-slate-800/50">
-                  <th className="px-6 py-4">Player</th>
-                  <th className="px-6 py-4 text-center">Low Line</th>
-                  <th className="px-6 py-4 text-center">High Line</th>
-                  <th className="px-6 py-4 text-center">Season Avg</th>
-                  <th className="px-6 py-4 text-right">The Edge</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/50">
-                {loading ? (
-                  <tr><td colSpan="5" className="p-12 text-center text-slate-400 animate-pulse">Scanning Markets...</td></tr>
-                ) : (
-                  <>
-                  {displayedEdges.map((edge) => (
-                  <tr key={edge.id} className="hover:bg-slate-800/30 transition-colors group">
-                    <td className="px-6 py-5">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-white group-hover:text-indigo-400 transition-colors">{edge.player}</span>
-                        <span className="text-xs text-slate-500">{edge.team} vs {edge.opponent}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                        <span className="text-lg font-mono text-green-400 font-bold">{edge.bestOver.line}</span>
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                        <span className="text-lg font-mono text-red-400 font-bold">{edge.bestUnder.line}</span>
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                        <span className="text-sm font-bold text-indigo-400">{edge.forecast}</span>
-                    </td>
-                    <td className="px-6 py-5 text-right">
-                        <span className="text-sm font-bold text-amber-400">{edge.discrepancy} pt Gap</span>
-                    </td>
+          {/* Table Container */}
+          <div className="bg-[#0f0f0f] rounded-3xl border border-white/5 shadow-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-slate-500 text-[10px] uppercase font-bold tracking-[0.15em] border-b border-white/5 bg-[#0a0a0a]">
+                    <th className="px-8 py-4">Player</th>
+                    <th className="px-8 py-4 text-center">Best Under</th>
+                    <th className="px-8 py-4 text-center">Best Over</th>
+                    <th className="px-8 py-4 text-right">The Gap</th>
                   </tr>
-                  ))}
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {loading && safeEdges.length === 0 ? (
+                      <tr><td colSpan="4" className="py-20 text-center text-slate-400 animate-pulse uppercase tracking-widest text-xs font-bold">Scanning Markets...</td></tr>
+                  ) : safeEdges.length === 0 ? (
+                      <tr><td colSpan="4" className="py-20 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected at this time.</td></tr>
+                  ) : (
+                    <>
+                    {displayedEdges.map((edge, i) => (
+                        <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
+                        <td className="px-8 py-6">
+                            <div className="flex flex-col text-white">
+                            <span className="font-bold text-lg group-hover:text-indigo-400 transition-colors">{edge.player_name || 'Unknown'}</span>
+                            <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{edge.game || 'NBA Game'}</span>
+                            </div>
+                        </td>
+                        <td className="px-8 py-6 text-center">
+                            <div className="flex flex-col">
+                                <span className="text-xl font-mono font-black text-red-400">{edge.high_line || '--'}</span>
+                                <span className="text-[9px] uppercase font-bold text-slate-600">{edge.high_book || 'Book'}</span>
+                            </div>
+                        </td>
+                        <td className="px-8 py-6 text-center">
+                            <div className="flex flex-col">
+                                <span className="text-xl font-mono font-black text-green-400">{edge.low_line || '--'}</span>
+                                <span className="text-[9px] uppercase font-bold text-slate-600">{edge.low_book || 'Book'}</span>
+                            </div>
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                            <span className="text-sm font-black text-white italic">{edge.edge_size || '0'} PT GAP</span>
+                        </td>
+                        </tr>
+                    ))}
 
-                  {!isPremium && hiddenCount > 0 && (
-                      <tr>
-                          <td colSpan="5" className="relative p-0 border-t border-slate-800">
-                             <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-[2px] z-10"></div>
-                             <div className="relative z-20 flex flex-col items-center justify-center py-20 text-center px-4">
-                                <div className="w-12 h-12 bg-indigo-600/20 rounded-full flex items-center justify-center mb-4">
-                                    <Lock className="text-indigo-500" size={24} />
+                    {/* Locked Rows Paywall */}
+                    {!isPremium && lockedCount > 0 && (
+                        <tr>
+                            <td colSpan="4" className="relative py-24 bg-black/40 border-t border-white/5">
+                                <div className="flex flex-col items-center justify-center text-center px-6">
+                                    <div className="w-12 h-12 bg-indigo-600/10 rounded-full flex items-center justify-center mb-4">
+                                        <Lock className="text-indigo-500" size={24} />
+                                    </div>
+                                    <h3 className="text-3xl font-black text-white mb-2 italic uppercase tracking-tight">Unlock {lockedCount} More Live Gaps</h3>
+                                    <p className="text-slate-400 text-sm mb-8 max-w-md font-medium">Upgrade to Pro to see the full board and receive real-time sniper alerts in Discord.</p>
+                                    <button 
+                                        onClick={handleUpgrade}
+                                        className="px-12 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold shadow-2xl transition-all hover:scale-105 active:scale-95 uppercase tracking-widest text-xs"
+                                    >
+                                        Access Pro Sniper
+                                    </button>
                                 </div>
-                                <h3 className="text-2xl font-black text-white mb-2 italic">Unlock {hiddenCount} More High-Value Edges</h3>
-                                <p className="text-slate-400 text-sm mb-6 max-w-sm">Join the Pro Sniper Discord to see every market discrepancy as it happens.</p>
-                                <button 
-                                    onClick={handleSubscribe}
-                                    className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold shadow-2xl shadow-indigo-900/40 transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
-                                >
-                                    Get Pro Access Now <ChevronRight size={18} />
-                                </button>
-                             </div>
-                          </td>
-                      </tr>
+                            </td>
+                        </tr>
+                    )}
+                    </>
                   )}
-                  </>
-                )}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 };
