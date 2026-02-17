@@ -71,9 +71,9 @@ const App = () => {
     fetchEdges();
   }, []);
 
-  const handleSubscribe = () => {
-      // PLACEHOLDER: This is where we will paste your Stripe/Whop link later
-      alert("This button is ready! Once we get your payment link, clicking this will go to checkout.");
+ const handleSubscribe = () => {
+      // Replace with your ACTUAL Whop link
+      window.open('https://whop.com/johngwentworth/propsniper-pro/', '_blank');
   };
 
   const filteredEdges = propEdges.filter(edge => 
