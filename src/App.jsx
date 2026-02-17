@@ -21,7 +21,7 @@ const App = () => {
   const [loading, setLoading] = useState(true);
   
   // --- PAYWALL STATE ---
-  // In a real app, this would come from your Auth provider (Supabase Auth / Whop)
+  // Defaults to false so everyone sees the Paywall first
   const [isPremium, setIsPremium] = useState(false); 
 
   // --- CONFIGURATION ---
@@ -71,6 +71,11 @@ const App = () => {
     fetchEdges();
   }, []);
 
+  const handleSubscribe = () => {
+      // PLACEHOLDER: This is where we will paste your Stripe/Whop link later
+      alert("This button is ready! Once we get your payment link, clicking this will go to checkout.");
+  };
+
   const filteredEdges = propEdges.filter(edge => 
     edge.player.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (edge.team && edge.team.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -84,23 +89,6 @@ const App = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
       
-      {/* ADMIN TOGGLE: This is just for you to test the view. Remove before real launch. */}
-      <div className="fixed top-4 right-4 z-50 bg-slate-800 p-2 rounded-lg border border-slate-700 shadow-xl flex items-center gap-2">
-        <span className="text-xs text-slate-400 font-bold uppercase">Simulate:</span>
-        <button 
-            onClick={() => setIsPremium(false)}
-            className={`px-3 py-1 rounded text-xs font-bold ${!isPremium ? 'bg-red-500 text-white' : 'text-slate-400 hover:bg-slate-700'}`}
-        >
-            Free User
-        </button>
-        <button 
-            onClick={() => setIsPremium(true)}
-            className={`px-3 py-1 rounded text-xs font-bold ${isPremium ? 'bg-green-500 text-white' : 'text-slate-400 hover:bg-slate-700'}`}
-        >
-            Pro User
-        </button>
-      </div>
-
       {/* Sidebar Navigation */}
       <div className="fixed left-0 top-0 h-full w-64 bg-slate-900 border-r border-slate-800 p-6 hidden lg:block">
         <div className="flex items-center gap-2 mb-10">
@@ -131,7 +119,10 @@ const App = () => {
             <div className="absolute bottom-10 left-6 right-6 p-4 bg-gradient-to-br from-indigo-900/40 to-slate-800 rounded-2xl border border-indigo-500/20">
             <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-2">Free Trial</p>
             <p className="text-sm text-slate-300 mb-4 font-light">Unlock all {filteredEdges.length} edges free for 7 days.</p>
-            <button className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-indigo-900/20">
+            <button 
+                onClick={handleSubscribe}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-indigo-900/20"
+            >
                 Start 7-Day Trial
             </button>
             </div>
@@ -313,11 +304,14 @@ const App = () => {
                                 </div>
                                 
                                 <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-                                    <button className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-lg shadow-xl shadow-indigo-900/20 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                                    <button 
+                                        onClick={handleSubscribe}
+                                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-lg shadow-xl shadow-indigo-900/20 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+                                    >
                                         Start 7-Day Free Trial
                                         <ChevronRight size={20} />
                                     </button>
-                                    <p className="text-xs text-slate-500 font-medium">Then $29/mo • Cancel anytime</p>
+                                    <p className="text-xs text-slate-500 font-medium">Then $14.99/mo • Cancel anytime</p>
                                 </div>
                                 
                                 <div className="flex items-center gap-6 mt-4 text-xs text-slate-500 font-medium">
