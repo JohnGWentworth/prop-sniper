@@ -17,28 +17,6 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-// Firebase Imports
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
-
-// --- FIREBASE CONFIGURATION ---
-// This safely handles the environment where variables might not be defined yet
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-let app, auth, db;
-
-try {
-    if (Object.keys(firebaseConfig).length > 0) {
-        app = initializeApp(firebaseConfig);
-        auth = getAuth(app);
-        db = getFirestore(app);
-    }
-} catch (e) {
-    console.log("Firebase not initialized yet (Local Mode)");
-}
-
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'prop-sniper';
-
 const App = () => {
   const [edges, setEdges] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,51 +26,36 @@ const App = () => {
   // --- AUTH & PREMIUM STATE ---
   const [isPremium, setIsPremium] = useState(false); 
   const [accessKey, setAccessKey] = useState(''); 
-  const [user, setUser] = useState(null);
 
   // --- CONFIGURATION ---
   const whopLink = "https://whop.com/checkout/plan_EFF1P6AlgcidP";
   const SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co';
   const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A';
 
-  // 1. AUTHENTICATION & SESSION PERSISTENCE
+  // 1. SIMPLE SESSION MEMORY (Browser Storage)
   useEffect(() => {
-    if (!auth) return;
-
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth failed:", err);
-      }
-    };
-    initAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-    return () => unsubscribe();
+    // Check if user already entered key previously
+    const savedSession = localStorage.getItem('propSniperProAccess');
+    if (savedSession === 'true') {
+      setIsPremium(true);
+    }
   }, []);
 
-  // 2. CHECK DATABASE FOR EXISTING UNLOCK STATUS
+  // 2. KEY ENTRY LOGIC
   useEffect(() => {
-    if (!user || !db) return;
+    if (accessKey === "PRO2026") {
+      setIsPremium(true);
+      // Save to browser memory so they stay logged in
+      localStorage.setItem('propSniperProAccess', 'true');
+    }
+  }, [accessKey]);
 
-    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'access');
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists() && docSnap.data().isPremium === true) {
-        setIsPremium(true);
-      }
-    }, (err) => console.log("Firestore sync silent fail (Local Mode)"));
+  const handleLogout = () => {
+    setIsPremium(false);
+    setAccessKey('');
+    localStorage.removeItem('propSniperProAccess');
+  };
 
-    return () => unsubscribe();
-  }, [user]);
-
-  // 3. FETCH DATA FROM SUPABASE
   const fetchEdges = async () => {
     setLoading(true);
     try {
@@ -104,20 +67,13 @@ const App = () => {
       });
       const data = await response.json();
       
-      // Strict Array verification
       if (Array.isArray(data)) {
-        // Map data to ensure safe rendering even if columns are missing
-        const safeData = data.map(item => ({
-            ...item,
-            market: item.market || "Points",
-            player_name: item.player_name || "Unknown",
-            game: item.game || "NBA Game"
-        }));
-        setEdges(safeData);
+        setEdges(data);
       } else {
         setEdges([]);
       }
     } catch (err) {
+      console.error("Fetch error:", err);
       setEdges([]);
     } finally {
       setLoading(false);
@@ -130,42 +86,14 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // 4. MANUAL KEY ENTRY
-  useEffect(() => {
-    if (accessKey === "PRO2026") {
-      handleUnlock();
-    }
-  }, [accessKey]);
-
-  const handleUnlock = async () => {
-    setIsPremium(true);
-    if (user && db) {
-        try {
-          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'access');
-          await setDoc(docRef, { isPremium: true, updated_at: new Date().toISOString() });
-        } catch (err) {
-          // Silent fail for local testing
-        }
-    }
-  };
-
-  const handleLogout = async () => {
-    if (user && db) {
-        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'access');
-        await setDoc(docRef, { isPremium: false });
-    }
-    setIsPremium(false);
-    setAccessKey('');
-  };
-
   const filteredEdges = edges.filter(edge => 
-    edge.player_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    edge.market?.toLowerCase().includes(searchQuery.toLowerCase())
+    edge.player_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
   const lockedCount = Math.max(0, filteredEdges.length - displayedEdges.length);
 
+  // Helper for dynamic market badges
   const getMarketStyle = (market) => {
       switch(market) {
           case 'Rebounds': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
@@ -222,15 +150,15 @@ const App = () => {
               <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-2xl">
                 <div className="flex items-center gap-2 text-green-400 mb-2">
                   <ShieldCheck size={16} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-left">Pro Active</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-left">Pro Status Active</span>
                 </div>
                 <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-2 text-slate-500 hover:text-white text-xs font-bold transition-all"><LogOut size={14} /> Sign Out</button>
               </div>
             ) : (
               <div className="p-4 bg-gradient-to-br from-indigo-900/20 to-slate-800/40 rounded-2xl border border-indigo-500/20 text-left">
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Verify Membership</p>
-                <button onClick={() => window.location.href = whopLink} className="w-full py-2.5 bg-white text-black hover:bg-slate-200 rounded-xl text-xs font-bold transition-all mb-3 flex items-center justify-center gap-2 font-mono uppercase tracking-tighter italic">Connect Whop</button>
-                <input type="password" placeholder="Access Key..." value={accessKey} onChange={(e) => setAccessKey(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-lg py-1.5 px-3 text-[10px] focus:outline-none focus:border-indigo-500/50 text-white" />
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Already a member?</p>
+                <button onClick={() => window.location.href = whopLink} className="w-full py-2.5 bg-white text-black hover:bg-slate-200 rounded-xl text-xs font-bold transition-all mb-3 flex items-center justify-center gap-2"><User size={14} /> Verify Whop Access</button>
+                <input type="password" placeholder="Enter Access Key..." value={accessKey} onChange={(e) => setAccessKey(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-lg py-1.5 px-3 text-[10px] focus:outline-none focus:border-indigo-500/50 text-white" />
               </div>
             )}
           </div>
@@ -292,7 +220,7 @@ const App = () => {
                       {loading && edges.length === 0 ? (
                           <tr><td colSpan="6" className="py-24 text-center text-slate-400 animate-pulse uppercase tracking-widest text-xs font-bold font-mono">Syncing Proprietary Markets...</td></tr>
                       ) : edges.length === 0 ? (
-                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected. Run your scanner.</td></tr>
+                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected.</td></tr>
                       ) : (
                         <>
                         {displayedEdges.map((edge, i) => {
@@ -369,7 +297,7 @@ const App = () => {
                           <div className="flex justify-between items-start mb-6">
                               <div>
                                 <h4 className="text-2xl font-black italic text-white uppercase mb-1 leading-none group-hover:text-indigo-400">{edge.player_name}</h4>
-                                <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">{edge.game}</span>
+                                <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block mb-6">{edge.game}</span>
                               </div>
                               <span className={`text-[10px] font-black px-2 py-1 rounded border uppercase tracking-widest italic ${getMarketStyle(edge.market)}`}>
                                   {edge.market}
