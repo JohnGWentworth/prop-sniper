@@ -9,12 +9,10 @@ import {
   Lock, 
   RefreshCw,
   ChevronRight,
-  Activity,
   ArrowUpRight,
   User,
   LogOut,
-  ShieldCheck,
-  AlertTriangle
+  ShieldCheck
 } from 'lucide-react';
 
 const App = () => {
@@ -31,30 +29,6 @@ const App = () => {
   const whopLink = "https://whop.com/checkout/plan_EFF1P6AlgcidP";
   const SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co';
   const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A';
-
-  // 1. SIMPLE SESSION MEMORY (Browser Storage)
-  useEffect(() => {
-    // Check if user already entered key previously
-    const savedSession = localStorage.getItem('propSniperProAccess');
-    if (savedSession === 'true') {
-      setIsPremium(true);
-    }
-  }, []);
-
-  // 2. KEY ENTRY LOGIC
-  useEffect(() => {
-    if (accessKey === "PRO2026") {
-      setIsPremium(true);
-      // Save to browser memory so they stay logged in
-      localStorage.setItem('propSniperProAccess', 'true');
-    }
-  }, [accessKey]);
-
-  const handleLogout = () => {
-    setIsPremium(false);
-    setAccessKey('');
-    localStorage.removeItem('propSniperProAccess');
-  };
 
   const fetchEdges = async () => {
     setLoading(true);
@@ -86,6 +60,24 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    // Check session memory
+    const savedSession = localStorage.getItem('propSniperProAccess');
+    if (savedSession === 'true') setIsPremium(true);
+    
+    // Check manual key
+    if (accessKey === "PRO2026") {
+      setIsPremium(true);
+      localStorage.setItem('propSniperProAccess', 'true');
+    }
+  }, [accessKey]);
+
+  const handleLogout = () => {
+    setIsPremium(false);
+    setAccessKey('');
+    localStorage.removeItem('propSniperProAccess');
+  };
+
   const filteredEdges = edges.filter(edge => 
     edge.player_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -93,7 +85,6 @@ const App = () => {
   const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
   const lockedCount = Math.max(0, filteredEdges.length - displayedEdges.length);
 
-  // Helper for dynamic market badges
   const getMarketStyle = (market) => {
       switch(market) {
           case 'Rebounds': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
@@ -136,13 +127,6 @@ const App = () => {
                 <BarChart3 size={18}/>
                 <span className="text-sm font-bold tracking-tight">Player Forecasts</span>
             </button>
-            <button 
-                onClick={() => setActiveTab('analytics')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left ${activeTab === 'analytics' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-                <Activity size={18}/>
-                <span className="text-sm font-bold tracking-tight">Market Analytics</span>
-            </button>
           </nav>
 
           <div className="mt-auto space-y-4">
@@ -169,7 +153,7 @@ const App = () => {
           <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
             <div className="text-left">
               <h2 className="text-5xl font-black text-white tracking-tight mb-2 italic uppercase">
-                {activeTab === 'edges' ? 'PropSniper Pro' : activeTab === 'projections' ? 'Forecasts' : 'Analytics'}
+                {activeTab === 'edges' ? 'PropSniper Pro' : 'Player Forecasts'}
               </h2>
               <p className="text-slate-500 font-medium tracking-tight">Real-time discrepancy engine for NBA player props.</p>
             </div>
@@ -220,7 +204,7 @@ const App = () => {
                       {loading && edges.length === 0 ? (
                           <tr><td colSpan="6" className="py-24 text-center text-slate-400 animate-pulse uppercase tracking-widest text-xs font-bold font-mono">Syncing Proprietary Markets...</td></tr>
                       ) : edges.length === 0 ? (
-                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected.</td></tr>
+                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected. Run your scanner.</td></tr>
                       ) : (
                         <>
                         {displayedEdges.map((edge, i) => {
@@ -240,7 +224,7 @@ const App = () => {
                                 </td>
                                 <td className="px-8 py-7 text-center">
                                     <div className="flex flex-col">
-                                        <span className="text-xl font-mono font-black text-white italic">{edge.season_avg || '24.5'}</span>
+                                        <span className="text-xl font-mono font-black text-white italic">{edge.season_avg && edge.season_avg > 0 ? edge.season_avg : '--'}</span>
                                         <span className="text-[9px] uppercase font-bold text-slate-600 tracking-wider">Avg/Proj</span>
                                     </div>
                                 </td>
@@ -306,7 +290,7 @@ const App = () => {
                           <div className="space-y-4">
                               <div className="flex justify-between py-2 border-b border-white/5">
                                   <span className="text-xs font-bold text-slate-500 uppercase">Season Avg</span>
-                                  <span className="text-lg font-black text-white italic">{edge.season_avg || '--'}</span>
+                                  <span className="text-lg font-black text-white italic">{edge.season_avg && edge.season_avg > 0 ? edge.season_avg : '--'}</span>
                               </div>
                               <div className="flex justify-between py-2">
                                   <span className="text-xs font-bold text-slate-500 uppercase">Market Bias</span>
@@ -319,52 +303,6 @@ const App = () => {
                       <Lock size={24} className="text-indigo-500" />
                       Upgrade to unlock all Forecasts
                   </div>}
-              </div>
-          )}
-
-          {activeTab === 'analytics' && (
-              <div className="space-y-8">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      <div className="bg-[#0f0f0f] border border-white/5 rounded-3xl p-10 shadow-lg text-left">
-                          <h4 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-8 flex items-center gap-4">
-                              <TrendingUp className="text-indigo-500" /> Market Momentum
-                          </h4>
-                          <div className="space-y-8">
-                              {[
-                                  { label: 'DraftKings Volatility', value: 'High', color: 'text-red-400' },
-                                  { label: 'FanDuel Sharp Action', value: 'Active', color: 'text-green-400' },
-                                  { label: 'Market Mean Variance', value: '0.82', color: 'text-white' }
-                              ].map((stat, i) => (
-                                  <div key={i} className="flex justify-between border-b border-white/5 pb-4">
-                                      <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{stat.label}</span>
-                                      <span className={`text-xl font-black italic uppercase tracking-tighter ${stat.color}`}>{stat.value}</span>
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-                      <div className="bg-[#0f0f0f] border border-white/5 rounded-3xl p-10 shadow-lg text-left">
-                          <h4 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-8 flex items-center gap-4">
-                              <Activity className="text-green-500" /> Network Distribution
-                          </h4>
-                          <div className="grid grid-cols-2 gap-6">
-                              {['PrizePicks', 'Underdog', 'Fliff', 'Sleeper'].map((app, i) => (
-                                  <div key={i} className="p-6 bg-white/5 rounded-2xl border border-white/5 text-center group hover:border-indigo-500/50 transition-all">
-                                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{app}</p>
-                                      <p className="text-2xl font-black text-white italic uppercase tracking-tighter">Synced</p>
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-                  </div>
-                  {!isPremium && (
-                      <div className="bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-16 text-center relative overflow-hidden group">
-                           <div className="relative z-20 flex flex-col items-center">
-                              <h3 className="text-4xl font-black text-white italic uppercase tracking-tighter mb-4 underline decoration-indigo-600 decoration-8 underline-offset-8">PropSniper Intelligence Engine</h3>
-                              <p className="text-slate-400 text-sm max-w-lg mb-10 font-medium leading-relaxed">Access cross-platform heatmaps, line movement tracking, and professional sharp signals only available to Pro members.</p>
-                              <button onClick={() => window.location.href = whopLink} className="px-16 py-4 bg-white text-black rounded-2xl font-black italic uppercase tracking-[0.2em] text-xs hover:bg-indigo-600 hover:text-white transition-all transform hover:scale-105 active:scale-95 shadow-2xl">Go Pro Today</button>
-                           </div>
-                      </div>
-                  )}
               </div>
           )}
         </main>
