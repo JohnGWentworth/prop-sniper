@@ -1,0 +1,29 @@
+name: PropSniper Automation
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual run button
+
+jobs:
+  run-sniper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Libraries
+        run: |
+          pip install requests
+
+      - name: Run Scanner (Find Edges)
+        run: python nba_scanner.py
+
+      - name: Run Bot (Send Alerts)
+        run: python nba_bot.py
