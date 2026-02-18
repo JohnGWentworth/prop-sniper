@@ -3,81 +3,120 @@ import time
 import json
 from datetime import datetime, timezone
 
-# --- CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 THE_ODDS_API_KEY = 'b8ad6f2ea05156239ed9f4c67a315eff'
 BDL_API_KEY = '34a924cc-1a40-4386-89e6-3701418c4132'
+
 SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A'
 
+# --- 2. SETTINGS ---
 GAP_THRESHOLD = 1.0 
-GAME_LIMIT = 10
+GAME_LIMIT = 5 
 MARKETS_TO_SCAN = ['player_points', 'player_rebounds', 'player_assists']
-BOOKS_TO_IGNORE = ['Bovada', 'MyBookie.ag', 'BetOnline.ag']
+
+# UPDATED: Added 'BetRivers' to the ignore list to prevent skewed data
+BOOKS_TO_IGNORE = ['Bovada', 'MyBookie.ag', 'BetOnline.ag', 'BetRivers']
+
+# Cloud Cache (In-memory only, resets every run)
 STATS_CACHE = {}
 
 def get_season_avg(player_name, market_type):
+    """Fetches the specific season stat from BallDontLie with Rate Limit Handling."""
     cache_key = f"{player_name}_{market_type}"
     if cache_key in STATS_CACHE: return STATS_CACHE[cache_key]
-    
-    # Simple retry logic for stats
+
+    print(f"      📊 Fetching stats for {player_name}...")
     headers = {'Authorization': BDL_API_KEY}
-    for attempt in range(2):
-        try:
-            time.sleep(1) # Polite delay
-            search = requests.get("https://api.balldontlie.io/v1/players", headers=headers, params={'search': player_name}, timeout=5).json()
-            if not search.get('data'): return 0
+    
+    # Polite delay for API limits
+    time.sleep(1.5) 
+
+    try:
+        # 1. Search Player
+        r = requests.get("https://api.balldontlie.io/v1/players", headers=headers, params={'search': player_name}, timeout=10)
+        
+        # Simple Retry Logic
+        if r.status_code == 429:
+            print("      ⏳ Rate Limit. Sleeping 30s...")
+            time.sleep(30)
+            r = requests.get("https://api.balldontlie.io/v1/players", headers=headers, params={'search': player_name}, timeout=10)
+        
+        data = r.json()
+        if not data.get('data'): return 0
+        p_id = data['data'][0]['id']
+        
+        # 2. Get 2025 Stats
+        r_avg = requests.get("https://api.balldontlie.io/v1/season_averages", headers=headers, params={'season': 2025, 'player_ids[]': p_id}, timeout=10)
+        
+        if r_avg.status_code == 429:
+            time.sleep(30)
+            r_avg = requests.get("https://api.balldontlie.io/v1/season_averages", headers=headers, params={'season': 2025, 'player_ids[]': p_id}, timeout=10)
+
+        avg_data = r_avg.json()
+        if not avg_data.get('data'): return 0
+        
+        stats = avg_data['data'][0]
+        val = 0
+        if 'points' in market_type: val = stats.get('pts', 0)
+        elif 'rebounds' in market_type: val = stats.get('reb', 0)
+        elif 'assists' in market_type: val = stats.get('ast', 0)
             
-            p_id = search['data'][0]['id']
-            avg = requests.get("https://api.balldontlie.io/v1/season_averages", headers=headers, params={'season': 2025, 'player_ids[]': p_id}, timeout=5).json()
-            
-            val = 0
-            if avg.get('data'):
-                s = avg['data'][0]
-                if 'points' in market_type: val = s.get('pts', 0)
-                elif 'rebounds' in market_type: val = s.get('reb', 0)
-                elif 'assists' in market_type: val = s.get('ast', 0)
-            
-            STATS_CACHE[cache_key] = val
-            return val
-        except:
-            time.sleep(1)
-    return 0
+        STATS_CACHE[cache_key] = val
+        return val
+    except:
+        return 0
+
+def get_nba_game_ids():
+    print("☁️ [Cloud] Fetching schedule...")
+    try:
+        r = requests.get(f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={THE_ODDS_API_KEY}")
+        return [e['id'] for e in r.json()] if r.status_code == 200 else []
+    except: return []
+
+def fetch_props(event_id, market_key):
+    try:
+        r = requests.get(f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={THE_ODDS_API_KEY}&regions=us&markets={market_key}&oddsFormat=american")
+        return r.json() if r.status_code == 200 else None
+    except: return None
 
 def save_to_supabase(edges):
     url = f"{SUPABASE_URL}/rest/v1/nba_edges"
-    headers = {
-        "apikey": SUPABASE_KEY, 
-        "Authorization": f"Bearer {SUPABASE_KEY}", 
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates"
-    }
-    requests.post(url, headers=headers, json=edges)
+    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"}
+    r = requests.post(url, headers=headers, json=edges)
+    if r.status_code in [200, 201, 204]:
+        print(f"✅ Cloud Update Success: {len(edges)} edges live.")
+    else:
+        print(f"❌ DB Error: {r.text}")
 
 def run_cloud_scan():
-    print("☁️ Starting Cloud Scan...")
-    
-    # 1. Get Games
-    try:
-        games = requests.get(f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={THE_ODDS_API_KEY}").json()
-        if not isinstance(games, list): return
-    except: return
+    game_ids = get_nba_game_ids()
+    if not game_ids: 
+        print("No games found.")
+        return
 
     found_edges = []
     
-    for game in games[:GAME_LIMIT]:
-        game_id = game['id']
-        for market in MARKETS_TO_SCAN:
-            # 2. Fetch Odds
-            try:
-                odds = requests.get(f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{game_id}/odds?apiKey={THE_ODDS_API_KEY}&regions=us&markets={market}&oddsFormat=american").json()
-            except: continue
-            
-            if not odds or 'bookmakers' not in odds: continue
+    # 1. LOOP BY MARKET FIRST
+    for market in MARKETS_TO_SCAN:
+        clean_market_name = market.replace('player_', '').capitalize()
+        print(f"\nScanning: {clean_market_name}...")
+        
+        # 2. LOOP BY GAMES
+        for event_id in game_ids[:GAME_LIMIT]:
+            game_data = fetch_props(event_id, market)
+            if not game_data or 'bookmakers' not in game_data: continue
 
-            # 3. Analyze
             player_map = {}
-            for book in odds.get('bookmakers', []):
-                if any(x in book['title'] for x in BOOKS_TO_IGNORE): continue
+            for book in game_data.get('bookmakers', []):
+                book_name = book.get('title')
+                
+                # --- FILTER BAD BOOKS ---
+                # Checks if any ignored book name appears in the title
+                if any(ignored in book_name for ignored in BOOKS_TO_IGNORE):
+                    continue
+                # ------------------------
+
                 for m in book.get('markets', []):
                     if m['key'] == market:
                         for out in m.get('outcomes', []):
@@ -92,28 +131,31 @@ def run_cloud_scan():
                     diff = high['point'] - low['point']
 
                     if diff >= GAP_THRESHOLD:
-                        print(f"   🔥 Edge: {player} ({diff})")
-                        clean_market = market.replace('player_', '').capitalize()
+                        print(f"   🔥 Edge: {player} | {diff}pt gap")
                         avg = get_season_avg(player, market)
-                        
                         found_edges.append({
                             "player_name": player,
-                            "game": f"{game['away_team']} vs {game['home_team']}",
-                            "market": clean_market,
+                            "game": f"{game_data.get('away_team')} vs {game_data.get('home_team')}",
+                            "market": clean_market_name,
                             "low_line": float(low['point']),
                             "low_book": low['book'],
                             "high_line": float(high['point']),
                             "high_book": high['book'],
                             "edge_size": round(float(diff), 2),
-                            "season_avg": avg,
+                            "season_avg": avg, 
                             "created_at": datetime.now(timezone.utc).isoformat()
                         })
-    
-    if found_edges:
+            # Slight delay between games to be safe
+            time.sleep(1.0)
+        
+        # Cool down between markets
+        time.sleep(5)
+
+    if found_edges: 
         save_to_supabase(found_edges)
-        print(f"✅ Uploaded {len(found_edges)} edges.")
     else:
-        print("✅ No edges found.")
+        print("Scan complete. No edges found.")
 
 if __name__ == "__main__":
+    # Runs once and exits (Perfect for GitHub Actions)
     run_cloud_scan()
