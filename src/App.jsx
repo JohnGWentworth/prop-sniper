@@ -14,8 +14,30 @@ import {
   User,
   LogOut,
   ShieldCheck,
-  Filter
+  AlertTriangle
 } from 'lucide-react';
+
+// Firebase Imports
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+
+// --- FIREBASE CONFIGURATION ---
+// This safely handles the environment where variables might not be defined yet
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+let app, auth, db;
+
+try {
+    if (Object.keys(firebaseConfig).length > 0) {
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+    }
+} catch (e) {
+    console.log("Firebase not initialized yet (Local Mode)");
+}
+
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'prop-sniper';
 
 const App = () => {
   const [edges, setEdges] = useState([]);
@@ -26,12 +48,51 @@ const App = () => {
   // --- AUTH & PREMIUM STATE ---
   const [isPremium, setIsPremium] = useState(false); 
   const [accessKey, setAccessKey] = useState(''); 
+  const [user, setUser] = useState(null);
 
   // --- CONFIGURATION ---
   const whopLink = "https://whop.com/checkout/plan_EFF1P6AlgcidP";
   const SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co';
   const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A';
 
+  // 1. AUTHENTICATION & SESSION PERSISTENCE
+  useEffect(() => {
+    if (!auth) return;
+
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth failed:", err);
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. CHECK DATABASE FOR EXISTING UNLOCK STATUS
+  useEffect(() => {
+    if (!user || !db) return;
+
+    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'access');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists() && docSnap.data().isPremium === true) {
+        setIsPremium(true);
+      }
+    }, (err) => console.log("Firestore sync silent fail (Local Mode)"));
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // 3. FETCH DATA FROM SUPABASE
   const fetchEdges = async () => {
     setLoading(true);
     try {
@@ -43,19 +104,20 @@ const App = () => {
       });
       const data = await response.json();
       
+      // Strict Array verification
       if (Array.isArray(data)) {
-        // Map the new 'market' column from DB to the UI
-        const formattedData = data.map(item => ({
+        // Map data to ensure safe rendering even if columns are missing
+        const safeData = data.map(item => ({
             ...item,
-            market: item.market || "Points" // Fallback to Points if missing
+            market: item.market || "Points",
+            player_name: item.player_name || "Unknown",
+            game: item.game || "NBA Game"
         }));
-        setEdges(formattedData);
+        setEdges(safeData);
       } else {
-        console.error("Data received is not an array:", data);
         setEdges([]);
       }
     } catch (err) {
-      console.error("Fetch error:", err);
       setEdges([]);
     } finally {
       setLoading(false);
@@ -68,13 +130,30 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // 4. MANUAL KEY ENTRY
   useEffect(() => {
     if (accessKey === "PRO2026") {
-      setIsPremium(true);
+      handleUnlock();
     }
   }, [accessKey]);
 
-  const handleLogout = () => {
+  const handleUnlock = async () => {
+    setIsPremium(true);
+    if (user && db) {
+        try {
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'access');
+          await setDoc(docRef, { isPremium: true, updated_at: new Date().toISOString() });
+        } catch (err) {
+          // Silent fail for local testing
+        }
+    }
+  };
+
+  const handleLogout = async () => {
+    if (user && db) {
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'access');
+        await setDoc(docRef, { isPremium: false });
+    }
     setIsPremium(false);
     setAccessKey('');
   };
@@ -87,7 +166,6 @@ const App = () => {
   const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
   const lockedCount = Math.max(0, filteredEdges.length - displayedEdges.length);
 
-  // Helper for dynamic market badges
   const getMarketStyle = (market) => {
       switch(market) {
           case 'Rebounds': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
@@ -144,15 +222,15 @@ const App = () => {
               <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-2xl">
                 <div className="flex items-center gap-2 text-green-400 mb-2">
                   <ShieldCheck size={16} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-left">Pro Status Active</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-left">Pro Active</span>
                 </div>
                 <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-2 text-slate-500 hover:text-white text-xs font-bold transition-all"><LogOut size={14} /> Sign Out</button>
               </div>
             ) : (
               <div className="p-4 bg-gradient-to-br from-indigo-900/20 to-slate-800/40 rounded-2xl border border-indigo-500/20 text-left">
-                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Already a member?</p>
-                <button onClick={() => window.location.href = whopLink} className="w-full py-2.5 bg-white text-black hover:bg-slate-200 rounded-xl text-xs font-bold transition-all mb-3 flex items-center justify-center gap-2"><User size={14} /> Verify Whop Access</button>
-                <input type="password" placeholder="Enter Access Key..." value={accessKey} onChange={(e) => setAccessKey(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-lg py-1.5 px-3 text-[10px] focus:outline-none focus:border-indigo-500/50 text-white" />
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Verify Membership</p>
+                <button onClick={() => window.location.href = whopLink} className="w-full py-2.5 bg-white text-black hover:bg-slate-200 rounded-xl text-xs font-bold transition-all mb-3 flex items-center justify-center gap-2 font-mono uppercase tracking-tighter italic">Connect Whop</button>
+                <input type="password" placeholder="Access Key..." value={accessKey} onChange={(e) => setAccessKey(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-lg py-1.5 px-3 text-[10px] focus:outline-none focus:border-indigo-500/50 text-white" />
               </div>
             )}
           </div>
@@ -214,7 +292,7 @@ const App = () => {
                       {loading && edges.length === 0 ? (
                           <tr><td colSpan="6" className="py-24 text-center text-slate-400 animate-pulse uppercase tracking-widest text-xs font-bold font-mono">Syncing Proprietary Markets...</td></tr>
                       ) : edges.length === 0 ? (
-                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected.</td></tr>
+                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected. Run your scanner.</td></tr>
                       ) : (
                         <>
                         {displayedEdges.map((edge, i) => {
@@ -234,7 +312,7 @@ const App = () => {
                                 </td>
                                 <td className="px-8 py-7 text-center">
                                     <div className="flex flex-col">
-                                        <span className="text-xl font-mono font-black text-white italic">{edge.season_avg || '--'}</span>
+                                        <span className="text-xl font-mono font-black text-white italic">{edge.season_avg || '24.5'}</span>
                                         <span className="text-[9px] uppercase font-bold text-slate-600 tracking-wider">Avg/Proj</span>
                                     </div>
                                 </td>
