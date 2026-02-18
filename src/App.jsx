@@ -14,7 +14,7 @@ import {
   User,
   LogOut,
   ShieldCheck,
-  AlertTriangle
+  Filter
 } from 'lucide-react';
 
 const App = () => {
@@ -43,9 +43,13 @@ const App = () => {
       });
       const data = await response.json();
       
-      // Strict Array verification to prevent "No Data" issues
       if (Array.isArray(data)) {
-        setEdges(data);
+        // Map the new 'market' column from DB to the UI
+        const formattedData = data.map(item => ({
+            ...item,
+            market: item.market || "Points" // Fallback to Points if missing
+        }));
+        setEdges(formattedData);
       } else {
         console.error("Data received is not an array:", data);
         setEdges([]);
@@ -76,11 +80,21 @@ const App = () => {
   };
 
   const filteredEdges = edges.filter(edge => 
-    edge.player_name?.toLowerCase().includes(searchQuery.toLowerCase())
+    edge.player_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    edge.market?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
   const lockedCount = Math.max(0, filteredEdges.length - displayedEdges.length);
+
+  // Helper for dynamic market badges
+  const getMarketStyle = (market) => {
+      switch(market) {
+          case 'Rebounds': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+          case 'Assists': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+          default: return 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20';
+      }
+  };
 
   return (
     <div className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-indigo-500/30">
@@ -149,19 +163,19 @@ const App = () => {
           <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
             <div className="text-left">
               <h2 className="text-5xl font-black text-white tracking-tight mb-2 italic uppercase">
-                {activeTab === 'edges' ? 'PropSniper Pro' : activeTab === 'projections' ? 'Player Forecasts' : 'Market Analytics'}
+                {activeTab === 'edges' ? 'PropSniper Pro' : activeTab === 'projections' ? 'Forecasts' : 'Analytics'}
               </h2>
               <p className="text-slate-500 font-medium tracking-tight">Real-time discrepancy engine for NBA player props.</p>
             </div>
             <div className="flex items-center gap-4">
                 <button onClick={fetchEdges} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl border border-white/5 text-slate-400 transition-all"><RefreshCw size={20} className={loading ? 'animate-spin' : ''} /></button>
                 <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} /><input type="text" placeholder="Search markets..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 w-64 focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-all text-sm font-medium" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                    <input type="text" placeholder="Search markets..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 w-64 focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-all text-sm font-medium" />
                 </div>
             </div>
           </header>
 
-          {/* VIEW 1: MARKET EDGES */}
           {activeTab === 'edges' && (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-6 mb-12">
@@ -198,9 +212,9 @@ const App = () => {
                     </thead>
                     <tbody className="divide-y divide-white/5">
                       {loading && edges.length === 0 ? (
-                          <tr><td colSpan="6" className="py-24 text-center text-slate-400 animate-pulse uppercase tracking-widest text-xs font-bold font-mono tracking-tighter">Syncing Proprietary Markets...</td></tr>
+                          <tr><td colSpan="6" className="py-24 text-center text-slate-400 animate-pulse uppercase tracking-widest text-xs font-bold font-mono">Syncing Proprietary Markets...</td></tr>
                       ) : edges.length === 0 ? (
-                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected. Run your scanner.</td></tr>
+                          <tr><td colSpan="6" className="py-24 text-center text-slate-500 uppercase tracking-widest text-xs font-bold italic">No gaps detected.</td></tr>
                       ) : (
                         <>
                         {displayedEdges.map((edge, i) => {
@@ -214,22 +228,24 @@ const App = () => {
                                     </div>
                                 </td>
                                 <td className="px-8 py-7 text-center">
-                                    <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded border border-indigo-500/20 uppercase tracking-widest italic">Points</span>
+                                    <span className={`text-[10px] font-black px-2 py-1 rounded border uppercase tracking-widest italic ${getMarketStyle(edge.market)}`}>
+                                        {edge.market}
+                                    </span>
                                 </td>
                                 <td className="px-8 py-7 text-center">
                                     <div className="flex flex-col">
-                                        <span className="text-xl font-mono font-black text-white italic">{edge.season_avg || '24.5'}</span>
+                                        <span className="text-xl font-mono font-black text-white italic">{edge.season_avg || '--'}</span>
                                         <span className="text-[9px] uppercase font-bold text-slate-600 tracking-wider">Avg/Proj</span>
                                     </div>
                                 </td>
                                 <td className="px-8 py-7 text-center">
-                                    <div className={`flex flex-col py-2 rounded-xl border ${isHighGap ? 'bg-amber-500/10 border-amber-500/20' : 'bg-green-500/5 border-green-500/10'}`}>
+                                    <div className={`flex flex-col py-2 rounded-xl border ${isHighGap ? 'bg-amber-500/10 border-amber-500/20 shadow-lg shadow-amber-900/20' : 'bg-green-500/5 border-green-500/10'}`}>
                                         <span className={`text-2xl font-mono font-black italic ${isHighGap ? 'text-amber-400' : 'text-green-400'}`}>{edge.low_line}</span>
                                         <span className={`text-[9px] uppercase font-bold tracking-wider ${isHighGap ? 'text-amber-600' : 'text-green-600/60'}`}>{edge.low_book}</span>
                                     </div>
                                 </td>
                                 <td className="px-8 py-7 text-center">
-                                    <div className={`flex flex-col py-2 rounded-xl border ${isHighGap ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/5 border-red-500/10'}`}>
+                                    <div className={`flex flex-col py-2 rounded-xl border ${isHighGap ? 'bg-amber-500/10 border-amber-500/20 shadow-lg shadow-amber-900/20' : 'bg-red-500/5 border-red-500/10'}`}>
                                         <span className={`text-2xl font-mono font-black italic ${isHighGap ? 'text-amber-400' : 'text-red-400'}`}>{edge.high_line}</span>
                                         <span className={`text-[9px] uppercase font-bold tracking-wider ${isHighGap ? 'text-amber-600' : 'text-red-600/60'}`}>{edge.high_book}</span>
                                     </div>
@@ -237,7 +253,7 @@ const App = () => {
                                 <td className="px-8 py-7 text-right">
                                     <div className="inline-flex flex-col items-end">
                                         <span className={`text-lg font-black italic leading-none ${isHighGap ? 'text-amber-400' : 'text-white'}`}>{edge.edge_size} PTS</span>
-                                        <span className={`text-[10px] font-black uppercase tracking-widest mt-1 ${isHighGap ? 'text-amber-600' : 'text-indigo-500'}`}>Market Gap</span>
+                                        <span className={`text-[10px] font-black uppercase tracking-widest mt-1 ${isHighGap ? 'text-amber-600' : 'text-indigo-500'}`}>Gap</span>
                                     </div>
                                 </td>
                                 </tr>
@@ -253,7 +269,7 @@ const App = () => {
                                             <Lock className="text-indigo-500" size={32} />
                                         </div>
                                         <h3 className="text-4xl font-black text-white mb-3 italic uppercase tracking-tighter underline decoration-indigo-600 decoration-8 underline-offset-4">Unlock {lockedCount} PropSniper Edges</h3>
-                                        <p className="text-slate-400 text-sm mb-10 max-w-md font-medium leading-relaxed">Upgrade to PropSniper Pro to see every market gap, historical averages, and receive 1-on-1 support.</p>
+                                        <p className="text-slate-400 text-sm mb-10 max-w-md font-medium leading-relaxed">Upgrade to PropSniper Pro to see the full market board, projections, and receive real-time sniper alerts in Discord.</p>
                                         <button onClick={() => window.location.href = whopLink} className="px-14 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black shadow-2xl transition-all hover:scale-105 active:scale-95 uppercase tracking-[0.2em] text-xs italic flex items-center gap-2">Access PropSniper Pro <ChevronRight size={18} /></button>
                                     </div>
                                 </td>
@@ -268,45 +284,31 @@ const App = () => {
             </>
           )}
 
-          {/* VIEW 2: PLAYER FORECASTS (RESTORED) */}
           {activeTab === 'projections' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {displayedEdges.length > 0 ? (
-                      displayedEdges.map((edge, i) => (
-                          <div key={i} className="bg-[#0f0f0f] border border-white/5 rounded-3xl p-8 text-left hover:border-indigo-500/30 transition-all">
-                              <div className="flex justify-between items-start mb-6">
-                                  <div>
-                                    <h4 className="text-2xl font-black italic text-white uppercase mb-1 leading-none">{edge.player_name}</h4>
-                                    <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">{edge.game}</span>
-                                  </div>
-                                  <div className="bg-green-500/10 px-2 py-1 rounded text-[10px] font-black text-green-400 italic border border-green-500/20 uppercase tracking-widest">
-                                      High Efficiency
-                                  </div>
+                  {displayedEdges.map((edge, i) => (
+                      <div key={i} className="bg-[#0f0f0f] border border-white/5 rounded-3xl p-8 text-left hover:border-indigo-500/30 transition-all group">
+                          <div className="flex justify-between items-start mb-6">
+                              <div>
+                                <h4 className="text-2xl font-black italic text-white uppercase mb-1 leading-none group-hover:text-indigo-400">{edge.player_name}</h4>
+                                <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">{edge.game}</span>
                               </div>
-                              <div className="space-y-4">
-                                  <div className="flex justify-between items-center py-2 border-b border-white/5">
-                                      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Historical Avg</span>
-                                      <span className="text-xl font-black text-white italic">24.5</span>
-                                  </div>
-                                  <div className="flex justify-between items-center py-2 border-b border-white/5">
-                                      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Market Low</span>
-                                      <span className="text-xl font-black text-red-400 italic">{edge.low_line}</span>
-                                  </div>
-                                  <div className="flex justify-between items-center py-2">
-                                      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Sniper Bias</span>
-                                      <span className="text-lg font-black text-green-400 italic flex items-center gap-2 uppercase tracking-tighter">
-                                          <ArrowUpRight size={20} /> Over Confirmed
-                                      </span>
-                                  </div>
+                              <span className={`text-[10px] font-black px-2 py-1 rounded border uppercase tracking-widest italic ${getMarketStyle(edge.market)}`}>
+                                  {edge.market}
+                              </span>
+                          </div>
+                          <div className="space-y-4">
+                              <div className="flex justify-between py-2 border-b border-white/5">
+                                  <span className="text-xs font-bold text-slate-500 uppercase">Season Avg</span>
+                                  <span className="text-lg font-black text-white italic">{edge.season_avg || '--'}</span>
+                              </div>
+                              <div className="flex justify-between py-2">
+                                  <span className="text-xs font-bold text-slate-500 uppercase">Market Bias</span>
+                                  <span className="text-lg font-black text-green-400 italic flex items-center gap-1 uppercase tracking-tighter">OVER <ArrowUpRight size={16} /></span>
                               </div>
                           </div>
-                      ))
-                  ) : (
-                      <div className="col-span-full py-40 text-center opacity-40">
-                          <BarChart3 className="mx-auto mb-4" size={48} />
-                          <p className="uppercase font-black text-xl italic tracking-widest">Awaiting Scanner Data...</p>
                       </div>
-                  )}
+                  ))}
                   {!isPremium && <div className="col-span-full py-20 bg-white/5 rounded-3xl border border-dashed border-white/10 text-center uppercase font-black text-slate-500 tracking-widest italic flex flex-col items-center gap-4">
                       <Lock size={24} className="text-indigo-500" />
                       Upgrade to unlock all Forecasts
@@ -314,7 +316,6 @@ const App = () => {
               </div>
           )}
 
-          {/* VIEW 3: MARKET ANALYTICS (RESTORED) */}
           {activeTab === 'analytics' && (
               <div className="space-y-8">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
