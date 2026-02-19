@@ -22,50 +22,7 @@ BOOKS_TO_IGNORE = ['Bovada', 'MyBookie.ag', 'BetOnline.ag', 'BetRivers']
 STATS_CACHE = {}
 
 def get_season_avg(player_name, market_type):
-    """Fetches the specific season stat from BallDontLie with Rate Limit Handling."""
-    cache_key = f"{player_name}_{market_type}"
-    if cache_key in STATS_CACHE: return STATS_CACHE[cache_key]
-
-    print(f"      📊 Fetching stats for {player_name}...")
-    headers = {'Authorization': BDL_API_KEY}
-    
-    # Polite delay for API limits
-    time.sleep(1.5) 
-
-    try:
-        # 1. Search Player
-        r = requests.get("https://api.balldontlie.io/v1/players", headers=headers, params={'search': player_name}, timeout=10)
-        
-        # Simple Retry Logic
-        if r.status_code == 429:
-            print("      ⏳ Rate Limit. Sleeping 30s...")
-            time.sleep(30)
-            r = requests.get("https://api.balldontlie.io/v1/players", headers=headers, params={'search': player_name}, timeout=10)
-        
-        data = r.json()
-        if not data.get('data'): return 0
-        p_id = data['data'][0]['id']
-        
-        # 2. Get 2025 Stats
-        r_avg = requests.get("https://api.balldontlie.io/v1/season_averages", headers=headers, params={'season': 2025, 'player_ids[]': p_id}, timeout=10)
-        
-        if r_avg.status_code == 429:
-            time.sleep(30)
-            r_avg = requests.get("https://api.balldontlie.io/v1/season_averages", headers=headers, params={'season': 2025, 'player_ids[]': p_id}, timeout=10)
-
-        avg_data = r_avg.json()
-        if not avg_data.get('data'): return 0
-        
-        stats = avg_data['data'][0]
-        val = 0
-        if 'points' in market_type: val = stats.get('pts', 0)
-        elif 'rebounds' in market_type: val = stats.get('reb', 0)
-        elif 'assists' in market_type: val = stats.get('ast', 0)
-            
-        STATS_CACHE[cache_key] = val
-        return val
-    except:
-        return 0
+    return 0
 
 def get_nba_game_ids():
     print("☁️ [Cloud] Fetching schedule...")
@@ -80,12 +37,12 @@ def fetch_props(event_id, market_key):
         return r.json() if r.status_code == 200 else None
     except: return None
 
-def save_to_supabase(edges):
-    url = f"{SUPABASE_URL}/rest/v1/nba_edges"
+def save_to_supabase(data, table_name="nba_edges"):
+    url = f"{SUPABASE_URL}/rest/v1/{table_name}"
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"}
-    r = requests.post(url, headers=headers, json=edges)
+    r = requests.post(url, headers=headers, json=data)
     if r.status_code in [200, 201, 204]:
-        print(f"✅ Cloud Update Success: {len(edges)} edges live.")
+        print(f"✅ Cloud Update Success: {len(data)} rows sent to {table_name}.")
     else:
         print(f"❌ DB Error: {r.text}")
 
@@ -152,9 +109,50 @@ def run_cloud_scan():
         time.sleep(5)
 
     if found_edges: 
-        save_to_supabase(found_edges)
+        save_to_supabase(found_edges, "nba_edges")
     else:
         print("Scan complete. No edges found.")
+
+    # --- PART 2: FIRST BASKETS ---
+    print("\n🏆 SCANNING: First Baskets...")
+    first_baskets = []
+    
+    for event_id in game_ids[:GAME_LIMIT]:
+        game_data = fetch_props(event_id, 'player_first_basket')
+        if not game_data or 'bookmakers' not in game_data: continue
+
+        player_odds = {}
+        for book in game_data.get('bookmakers', []):
+            book_name = book.get('title')
+            if any(ignored in book_name for ignored in BOOKS_TO_IGNORE): continue
+            
+            for m in book.get('markets', []):
+                if m['key'] == 'player_first_basket':
+                    for out in m.get('outcomes', []):
+                        player = out.get('description')
+                        price = out.get('price') # First baskets use 'price', not 'point'
+                        if player and price:
+                            if player not in player_odds: player_odds[player] = []
+                            player_odds[player].append({"book": book_name, "price": price})
+
+        for player, lines in player_odds.items():
+            # Find the sportsbook paying the highest price
+            best_line = max(lines, key=lambda x: x['price'])
+            odds_str = f"+{best_line['price']}" if best_line['price'] > 0 else str(best_line['price'])
+            
+            first_baskets.append({
+                "player_name": player,
+                "game": f"{game_data.get('away_team')} vs {game_data.get('home_team')}",
+                "team": "TBD", 
+                "best_odds": odds_str,
+                "bookmaker": best_line['book']
+            })
+        time.sleep(1.0)
+        
+    if first_baskets:
+        save_to_supabase(first_baskets, "first_baskets")
+    else:
+        print("No First Baskets found.")
 
 if __name__ == "__main__":
     # Runs once and exits (Perfect for GitHub Actions)
