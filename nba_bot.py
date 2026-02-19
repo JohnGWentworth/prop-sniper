@@ -3,13 +3,13 @@ from datetime import datetime, timedelta, timezone
 
 # --- CONFIGURATION ---
 # PASTE YOUR WEBHOOK URL HERE
-DISCORD_WEBHOOK_URL = "YOUR_WEBHOOK_URL_HERE"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1473430586302529629/cp9Gap9O59Ck-wiyIQTigool0tthtp3IDQFAkB9NiQOkvwQygDEqqia3U61UHrHHpVmf"
 
 SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A'
 
 def send_alert(edge):
-    if "YOUR_WEBHOOK" in DISCORD_WEBHOOK_URL: return
+	if "YOUR_WEBHOOK" in DISCORD_WEBHOOK_URL: return
 
     color = 5814783
     if edge.get('market') == 'Rebounds': color = 16753920
@@ -36,7 +36,7 @@ def run_cloud_bot():
     
     # Get edges created in the last 20 minutes
     # We use 20 mins to cover the 15 min scan interval + buffer
-    time_threshold = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    time_threshold = (datetime.now(timezone.utc) - timedelta(minutes=120)).isoformat()
     
     url = f"{SUPABASE_URL}/rest/v1/nba_edges?select=*&created_at=gt.{time_threshold}"
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
@@ -50,7 +50,7 @@ def run_cloud_bot():
             for edge in edges:
                 send_alert(edge)
         else:
-            print("✅ No new edges in the last 20 mins.")
+            print("✅ No new edges in the last 120 mins.")
             
     except Exception as e:
         print(f"Error: {e}")
