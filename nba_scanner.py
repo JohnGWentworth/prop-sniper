@@ -1,12 +1,10 @@
 import requests
 import time
-import json
 from datetime import datetime, timezone
 
 # --- 1. CONFIGURATION ---
 THE_ODDS_API_KEY = 'b8ad6f2ea05156239ed9f4c67a315eff'
-BDL_API_KEY = '34a924cc-1a40-4386-89e6-3701418c4132'
-SPORTS_DATA_KEY = 'c60e71f676684525a4a5874bdb994f1e'
+PROP_ODDS_API_KEY = '5f628a5b66f578a4bea36edba378dac4' # Paste your key from the $59 plan here
 
 SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A'
@@ -15,163 +13,89 @@ SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 GAP_THRESHOLD = 1.0 
 GAME_LIMIT = 5 
 MARKETS_TO_SCAN = ['player_points', 'player_rebounds', 'player_assists']
-
-# UPDATED: Added 'BetRivers' to the ignore list to prevent skewed data
 BOOKS_TO_IGNORE = ['Bovada', 'MyBookie.ag', 'BetOnline.ag', 'BetRivers']
 
-# Cloud Cache (In-memory only, resets every run)
-STATS_CACHE = {}
-
-def get_season_avg(player_name, market_type):
-    return 0
+def save_to_supabase(data, table_name="nba_edges"):
+    url = f"{SUPABASE_URL}/rest/v1/{table_name}"
+    headers = {
+        "apikey": SUPABASE_KEY, 
+        "Authorization": f"Bearer {SUPABASE_KEY}", 
+        "Content-Type": "application/json", 
+        "Prefer": "resolution=merge-duplicates"
+    }
+    r = requests.post(url, headers=headers, json=data)
+    if r.status_code in [200, 201, 204]:
+        print(f"✅ DB Update: {len(data)} rows sent to {table_name}.")
+    else:
+        print(f"❌ DB Error: {r.text}")
 
 def get_nba_game_ids():
-    print("☁️ [Cloud] Fetching schedule...")
+    """Gets Game IDs for PropOdds/Odds API."""
     try:
         r = requests.get(f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={THE_ODDS_API_KEY}")
         return [e['id'] for e in r.json()] if r.status_code == 200 else []
     except: return []
 
-def fetch_props(event_id, market_key):
-    try:
-        r = requests.get(f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={THE_ODDS_API_KEY}&regions=us&markets={market_key}&oddsFormat=american")
-        return r.json() if r.status_code == 200 else None
-    except: return None
-
-def save_to_supabase(data, table_name="nba_edges"):
-    url = f"{SUPABASE_URL}/rest/v1/{table_name}"
-    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"}
-    r = requests.post(url, headers=headers, json=data)
-    if r.status_code in [200, 201, 204]:
-        print(f"✅ Cloud Update Success: {len(data)} rows sent to {table_name}.")
-    else:
-        print(f"❌ DB Error: {r.text}")
-
 def run_cloud_scan():
     game_ids = get_nba_game_ids()
-    if not game_ids: 
-        print("No games found.")
-        return
+    if not game_ids: return
 
-    found_edges = []
-    
-    # 1. LOOP BY MARKET FIRST
-    for market in MARKETS_TO_SCAN:
-        clean_market_name = market.replace('player_', '').capitalize()
-        print(f"\nScanning: {clean_market_name}...")
-        
-        # 2. LOOP BY GAMES
-        for event_id in game_ids[:GAME_LIMIT]:
-            game_data = fetch_props(event_id, market)
-            if not game_data or 'bookmakers' not in game_data: continue
+    # --- PART 1: LIVE MARKET EDGES (The Odds API) ---
+    # (Existing logic omitted here for brevity, keep your current loop from nba_scanner.py)
+    # ... Your existing Edge scanning code ...
 
-            player_map = {}
-            for book in game_data.get('bookmakers', []):
-                book_name = book.get('title')
-                
-                # --- FILTER BAD BOOKS ---
-                # Checks if any ignored book name appears in the title
-                if any(ignored in book_name for ignored in BOOKS_TO_IGNORE):
-                    continue
-                # ------------------------
-
-                for m in book.get('markets', []):
-                    if m['key'] == market:
-                        for out in m.get('outcomes', []):
-                            if out.get('point'):
-                                if out['description'] not in player_map: player_map[out['description']] = []
-                                player_map[out['description']].append({"book": book['title'], "point": out['point']})
-
-            for player, lines in player_map.items():
-                if len(lines) > 1:
-                    low = min(lines, key=lambda x: x['point'])
-                    high = max(lines, key=lambda x: x['point'])
-                    diff = high['point'] - low['point']
-
-                    if diff >= GAP_THRESHOLD:
-                        print(f"   🔥 Edge: {player} | {diff}pt gap")
-                        avg = get_season_avg(player, market)
-                        found_edges.append({
-                            "player_name": player,
-                            "game": f"{game_data.get('away_team')} vs {game_data.get('home_team')}",
-                            "market": clean_market_name,
-                            "low_line": float(low['point']),
-                            "low_book": low['book'],
-                            "high_line": float(high['point']),
-                            "high_book": high['book'],
-                            "edge_size": round(float(diff), 2),
-                            "season_avg": avg, 
-                            "created_at": datetime.now(timezone.utc).isoformat()
-                        })
-            # Slight delay between games to be safe
-            time.sleep(1.0)
-        
-        # Cool down between markets
-        time.sleep(5)
-
-    if found_edges: 
-        save_to_supabase(found_edges, "nba_edges")
-    else:
-        print("Scan complete. No edges found.")
-
-# --- PART 2: FIRST BASKETS (PREMIUM FEED) ---
-    print("\n🏆 SCANNING: First Baskets (SportsData.io)...")
+    # --- PART 2: FIRST BASKETS (PropOdds API) ---
+    print("\n🏆 SCANNING: First Baskets (PropOdds)...")
     first_baskets = []
     
+    # PropOdds requires their own Game IDs. We fetch the current NBA slate from them.
     try:
-        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        sd_url = f"https://api.sportsdata.io/v3/nba/odds/json/PlayerPropsByDate/{today_str}"
-        headers = {"Ocp-Apim-Subscription-Key": SPORTS_DATA_KEY}
+        po_games_url = f"https://api.prop-odds.com/v4/nba/games?api_key={PROP_ODDS_API_KEY}"
+        game_response = requests.get(po_games_url).json()
         
-        r = requests.get(sd_url, headers=headers)
-        
-        if r.status_code == 200:
-            props_data = r.json()
-            print(f"📡 Premium API returned {len(props_data)} total scrambled props.")
+        # Look for today's games
+        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        po_games = [g for g in game_response.get('games', []) if today in g.get('start_time', '')]
+
+        for game in po_games[:GAME_LIMIT]:
+            game_id = game['game_id']
+            # Fetch the specific First Basket Scorer market
+            market_url = f"https://api.prop-odds.com/v4/markets/{game_id}?api_key={PROP_ODDS_API_KEY}&market=first_basket_scorer"
+            market_data = requests.get(market_url).json()
             
-            # Print a few scrambled names so we can see what they look like
-            unique_markets = list(set([str(p.get('Name', '')) for p in props_data]))
-            print(f"🔍 Sample Scrambled Markets: {unique_markets[:5]}")
-            
-            for prop in props_data:
-                market_name = str(prop.get('Name', '')).lower()
-                if 'first basket' in market_name or 'first field goal' in market_name:
-                    player_name = prop.get('Name').split('(')[0].strip() if '(' in prop.get('Name', '') else "Unknown Player"
-                    odds = prop.get('OverOdds') or prop.get('Odds') or 100
-                    odds_str = f"+{odds}" if odds > 0 else str(odds)
+            player_odds = {}
+            for market in market_data.get('markets', []):
+                for book in market.get('bookmakers', []):
+                    book_name = book.get('bookmaker_name')
+                    if any(ignored in book_name for ignored in BOOKS_TO_IGNORE): continue
                     
-                    first_baskets.append({
-                        "player_name": player_name,
-                        "game": "Live Matchup", 
-                        "team": "TBD", 
-                        "best_odds": odds_str,
-                        "bookmaker": "Premium Feed" 
-                    })
-            
-            # --- THE OVERRIDE ---
-            # If the filter missed because of scrambled names, we FORCE a test row through
-            # so we can verify your React website and Supabase database are working!
-            if not first_baskets and len(props_data) > 0:
-                print("⚠️ Injecting Scrambled Test Prop to verify Website UI...")
-                test_prop = props_data[0]
+                    for outcome in book.get('outcomes', []):
+                        player = outcome.get('participant_name')
+                        price = outcome.get('price') # e.g. 650
+                        
+                        if player and price:
+                            if player not in player_odds: player_odds[player] = []
+                            player_odds[player].append({"book": book_name, "price": price})
+
+            for player, lines in player_odds.items():
+                best_line = max(lines, key=lambda x: x['price'])
                 first_baskets.append({
-                    "player_name": f"TEST: {test_prop.get('Name', 'Unknown')[:15]}...",
-                    "game": "Premium Test Match",
-                    "team": "TBD",
-                    "best_odds": f"+{test_prop.get('OverOdds', 450)}",
-                    "bookmaker": "SportsData.io"
+                    "player_name": player,
+                    "game": f"{game['away_team']} vs {game['home_team']}",
+                    "team": "TBD", 
+                    "best_odds": f"+{best_line['price']}",
+                    "bookmaker": best_line['book'],
+                    "created_at": datetime.now(timezone.utc).isoformat()
                 })
-                    
-            if first_baskets:
-                save_to_supabase(first_baskets, "first_baskets")
-            else:
-                print("No props found at all in premium feed for today.")
+            time.sleep(1.0) # Respect rate limits
+
+        if first_baskets:
+            save_to_supabase(first_baskets, "first_baskets")
         else:
-            print(f"❌ Premium API Error: {r.status_code} - {r.text}")
-            
+            print("No First Basket odds found yet.")
+
     except Exception as e:
-        print(f"❌ Premium Feed Crash: {e}")
+        print(f"❌ PropOdds Error: {e}")
 
 if __name__ == "__main__":
     run_cloud_scan()
-
