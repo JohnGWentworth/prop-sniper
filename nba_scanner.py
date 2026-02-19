@@ -114,12 +114,11 @@ def run_cloud_scan():
     else:
         print("Scan complete. No edges found.")
 
- # --- PART 2: FIRST BASKETS (PREMIUM FEED) ---
+# --- PART 2: FIRST BASKETS (PREMIUM FEED) ---
     print("\n🏆 SCANNING: First Baskets (SportsData.io)...")
     first_baskets = []
     
     try:
-        # Get today's date in YYYY-MM-DD for the API
         today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         sd_url = f"https://api.sportsdata.io/v3/nba/odds/json/PlayerPropsByDate/{today_str}"
         headers = {"Ocp-Apim-Subscription-Key": SPORTS_DATA_KEY}
@@ -128,14 +127,16 @@ def run_cloud_scan():
         
         if r.status_code == 200:
             props_data = r.json()
+            print(f"📡 Premium API returned {len(props_data)} total scrambled props.")
             
-            # Filter the massive feed specifically for First Basket markets
+            # Print a few scrambled names so we can see what they look like
+            unique_markets = list(set([str(p.get('Name', '')) for p in props_data]))
+            print(f"🔍 Sample Scrambled Markets: {unique_markets[:5]}")
+            
             for prop in props_data:
                 market_name = str(prop.get('Name', '')).lower()
                 if 'first basket' in market_name or 'first field goal' in market_name:
                     player_name = prop.get('Name').split('(')[0].strip() if '(' in prop.get('Name', '') else "Unknown Player"
-                    
-                    # Grab the odds, defaulting to +100 if something is weird
                     odds = prop.get('OverOdds') or prop.get('Odds') or 100
                     odds_str = f"+{odds}" if odds > 0 else str(odds)
                     
@@ -144,20 +145,33 @@ def run_cloud_scan():
                         "game": "Live Matchup", 
                         "team": "TBD", 
                         "best_odds": odds_str,
-                        "bookmaker": "Premium Consensus" 
+                        "bookmaker": "Premium Feed" 
                     })
+            
+            # --- THE OVERRIDE ---
+            # If the filter missed because of scrambled names, we FORCE a test row through
+            # so we can verify your React website and Supabase database are working!
+            if not first_baskets and len(props_data) > 0:
+                print("⚠️ Injecting Scrambled Test Prop to verify Website UI...")
+                test_prop = props_data[0]
+                first_baskets.append({
+                    "player_name": f"TEST: {test_prop.get('Name', 'Unknown')[:15]}...",
+                    "game": "Premium Test Match",
+                    "team": "TBD",
+                    "best_odds": f"+{test_prop.get('OverOdds', 450)}",
+                    "bookmaker": "SportsData.io"
+                })
                     
             if first_baskets:
                 save_to_supabase(first_baskets, "first_baskets")
             else:
-                print("No First Baskets found in premium feed for today.")
+                print("No props found at all in premium feed for today.")
         else:
             print(f"❌ Premium API Error: {r.status_code} - {r.text}")
             
     except Exception as e:
-        print(f"❌ Premium Feed Crash: {e}")  
+        print(f"❌ Premium Feed Crash: {e}")
 
 if __name__ == "__main__":
-    # Runs once and exits (Perfect for GitHub Actions)
     run_cloud_scan()
 
