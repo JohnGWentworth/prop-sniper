@@ -9,7 +9,7 @@ SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A'
 
 def send_alert(edge):
-	if "YOUR_WEBHOOK" in DISCORD_WEBHOOK_URL: return
+    if "YOUR_WEBHOOK" in DISCORD_WEBHOOK_URL: return
 
     color = 5814783
     if edge.get('market') == 'Rebounds': color = 16753920
@@ -30,7 +30,7 @@ def send_alert(edge):
     try:
         requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
     except: pass
-
+		
 def run_cloud_bot():
     print("🤖 Checking DB for fresh edges...")
     
@@ -57,3 +57,4 @@ def run_cloud_bot():
 
 if __name__ == "__main__":
     run_cloud_bot()
+
