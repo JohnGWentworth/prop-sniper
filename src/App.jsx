@@ -73,23 +73,28 @@ export default function App() {
 
     let alphas = [];
     Object.values(games).forEach(gamePlayers => {
-      // Sort players in the game by usage highest to lowest
-      gamePlayers.sort((a, b) => b.first_shot_prob - a.first_shot_prob);
+      // Sort players in the game by usage highest to lowest (parsing as numbers)
+      gamePlayers.sort((a, b) => parseFloat(b.first_shot_prob) - parseFloat(a.first_shot_prob));
       
       if (gamePlayers.length >= 2) {
         const topDog = gamePlayers[0];
         const runnerUp = gamePlayers[1];
-        const dominanceGap = (topDog.first_shot_prob - runnerUp.first_shot_prob).toFixed(1);
+        
+        // Strictly calculate as floats to prevent JS string math errors
+        const topDogUsage = parseFloat(topDog.first_shot_prob);
+        const runnerUpUsage = parseFloat(runnerUp.first_shot_prob);
+        const gap = topDogUsage - runnerUpUsage;
 
         // Only include them if they have a real lead over the rest of the players
-        if (topDog.first_shot_prob >= 20 && dominanceGap >= 5.0) {
-          alphas.push({ ...topDog, dominanceGap });
+        // Lowered threshold slightly to 4.0 to catch more valid alpha targets
+        if (topDogUsage >= 20.0 && gap >= 4.0) {
+          alphas.push({ ...topDog, dominanceGap: gap.toFixed(1) });
         }
       }
     });
 
     // Sort the final Alpha list by biggest dominance gap
-    return alphas.sort((a, b) => b.dominanceGap - a.dominanceGap);
+    return alphas.sort((a, b) => parseFloat(b.dominanceGap) - parseFloat(a.dominanceGap));
   };
 
   const alphaDogsList = getAlphaDogs();
@@ -201,10 +206,16 @@ export default function App() {
                     </div>
                   </div>
                 ))
-              ) : (
+              ) : loading ? (
                 <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-3xl">
-                  <Crown className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+                  <Crown className="w-12 h-12 text-slate-700 mx-auto mb-4 animate-pulse" />
                   <p className="text-slate-500 uppercase font-black tracking-widest text-sm">Calculating Alphas...</p>
+                </div>
+              ) : (
+                <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-3xl bg-black/20">
+                  <Crown className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+                  <p className="text-slate-300 uppercase font-black tracking-widest text-lg italic mb-2">No Alpha Dogs Qualify Today</p>
+                  <p className="text-slate-500 text-sm max-w-lg mx-auto font-medium">The math shows no player has a dominant usage gap over their teammates on tonight's slate. Check the Master Board for standard targets.</p>
                 </div>
               )}
             </div>
