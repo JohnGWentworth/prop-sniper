@@ -19,8 +19,17 @@ def calculate_implied_prob(american_odds):
     """Converts +400 into 20.0%"""
     try:
         odds = int(american_odds)
-        if odds > 0: return round((100 / (odds + 100)) * 100, 1)
-        else: return round((abs(odds) / (abs(odds) + 100)) * 100, 1)
+        if odds > 0: return (100 / (odds + 100)) * 100
+        else: return (abs(odds) / (abs(odds) + 100)) * 100
+    except:
+        return 0.0
+
+def calculate_decimal_odds(american_odds):
+    """Converts +400 to 5.0 decimal for EV math"""
+    try:
+        odds = int(american_odds)
+        if odds > 0: return (odds / 100) + 1
+        else: return (100 / abs(odds)) + 1
     except:
         return 0.0
 
@@ -50,7 +59,6 @@ def run_cloud_scan():
             all_games = r_games.json()
             game_ids = []
             
-            # Strict Time Filter: ONLY Today's Games
             us_now = datetime.now(timezone.utc) - timedelta(hours=5)
             us_today = us_now.strftime('%Y-%m-%d')
 
@@ -115,8 +123,8 @@ def run_cloud_scan():
 
     if found_edges: save_to_supabase(found_edges, "nba_edges")
 
-    # --- PART 2: FIRST BASKETS (Pure Math, No 3rd Party APIs) ---
-    print("\n🏆 Scanning First Baskets (Self-Contained Math)...")
+    # --- PART 2: FIRST BASKETS & EINSTEIN EV MATH ---
+    print("\n🏆 Scanning First Baskets (Einstein Engine Active)...")
     first_baskets = []
     
     for event_id in game_ids[:GAME_LIMIT]:
@@ -144,23 +152,34 @@ def run_cloud_scan():
                             player_odds[player].append({"book": book['title'], "price": price})
 
             for player, lines in player_odds.items():
-                best = max(lines, key=lambda x: x['price'])
+                # 1. Find the absolute best odds available
+                best_line = max(lines, key=lambda x: x['price'])
+                best_price = best_line['price']
                 
-                # 1. Calculate the pure implied probability from the sportsbooks
-                implied_prob = calculate_implied_prob(best['price'])
+                # 2. Find the Market Consensus (average of all OTHER books)
+                other_lines = [l for l in lines if l['book'] != best_line['book']]
+                if len(other_lines) > 0:
+                    consensus_prob = sum(calculate_implied_prob(l['price']) for l in other_lines) / len(other_lines)
+                else:
+                    consensus_prob = calculate_implied_prob(best_price) # Fallback if only 1 book has it
                 
-                # 2. Baseline Usage: Mathematically, if jump balls are 50/50, a player's 
-                # chance of shooting first when their team gets the ball is exactly double their total prob.
+                # 3. Calculate the Einstein Expected Value (EV%)
+                decimal_odds = calculate_decimal_odds(best_price)
+                ev_percent = round(((consensus_prob / 100) * decimal_odds - 1) * 100, 1)
+
+                # 4. Standard Metrics
+                implied_prob = calculate_implied_prob(best_price)
                 baseline_usage = round(implied_prob * 2, 1)
 
                 first_baskets.append({
                     "player_name": player,
                     "game": f"{away_team} vs {home_team}",
                     "team": f"{away_team} or {home_team}", 
-                    "best_odds": f"+{best['price']}" if best['price'] > 0 else str(best['price']),
-                    "bookmaker": best['book'],
-                    "tip_win_prob": implied_prob,  # Storing True Implied Prob here
-                    "first_shot_prob": baseline_usage, # Storing Baseline Usage here
+                    "best_odds": f"+{best_price}" if best_price > 0 else str(best_price),
+                    "bookmaker": best_line['book'],
+                    "tip_win_prob": round(implied_prob, 1),
+                    "first_shot_prob": baseline_usage, 
+                    "einstein_ev": ev_percent, # The new God-Tier stat
                     "created_at": datetime.now(timezone.utc).isoformat()
                 })
         except Exception as e:
