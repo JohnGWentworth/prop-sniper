@@ -89,39 +89,60 @@ def run_cloud_scan():
 
     if found_edges: save_to_supabase(found_edges, "nba_edges")
 
-    # --- PART 2: FIRST BASKETS ---
-    print("\n🏆 Scanning First Baskets (Premium Market)...")
+    # --- PART 2: FIRST BASKETS & TIP-OFFS (Expanded Premium Markets) ---
+    print("\n🏆 Scanning First Baskets (Expanded Premium Markets)...")
     first_baskets = []
+    
+    # We are now requesting 3 markets at once to save credits while 3x'ing the data
+    premium_markets = "player_first_basket,first_team_to_score,player_first_basket_method"
+
     for event_id in game_ids[:GAME_LIMIT]:
         try:
-            # Market Key for First Basket Scorer
-            fb_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets=player_first_basket&oddsFormat=american"
+            fb_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets={premium_markets}&oddsFormat=american"
             fb_data = requests.get(fb_url, timeout=15).json()
             
             player_odds = {}
             for book in fb_data.get('bookmakers', []):
                 if any(ignored in book.get('title') for ignored in BOOKS_TO_IGNORE): continue
+                
                 for m in book.get('markets', []):
-                    if m['key'] == 'player_first_basket':
-                        for out in m.get('outcomes', []):
-                            player = out.get('description')
-                            price = out.get('price')
-                            if player and price:
-                                if player not in player_odds: player_odds[player] = []
-                                player_odds[player].append({"book": book['title'], "price": price})
+                    market_key = m['key']
+                    for out in m.get('outcomes', []):
+                        # The description is usually the player name or the team name
+                        player_or_team = out.get('description')
+                        price = out.get('price')
+                        
+                        if player_or_team and price:
+                            # We create a unique key so we can separate regular First Baskets from Methods and Teams
+                            unique_id = f"{player_or_team}_{market_key}"
+                            
+                            if unique_id not in player_odds: 
+                                player_odds[unique_id] = {
+                                    "name": player_or_team,
+                                    "market_type": market_key,
+                                    "lines": []
+                                }
+                            player_odds[unique_id]["lines"].append({"book": book['title'], "price": price})
 
-            for player, lines in player_odds.items():
-                best = max(lines, key=lambda x: x['price'])
+            # Find the best price for every single market/player combination
+            for unique_id, data in player_odds.items():
+                best = max(data["lines"], key=lambda x: x['price'])
+                
+                # Format the market name so it looks clean on the website
+                clean_market = "First Basket"
+                if data["market_type"] == "first_team_to_score": clean_market = "First Team to Score"
+                if data["market_type"] == "player_first_basket_method": clean_market = "First Basket Method"
+
                 first_baskets.append({
-                    "player_name": player,
+                    "player_name": data["name"],
                     "game": f"{fb_data.get('away_team')} vs {fb_data.get('home_team')}",
-                    "team": "TBD",
-                    "best_odds": f"+{best['price']}",
+                    "team": clean_market, # Using the 'team' column temporarily to store the market type for the UI
+                    "best_odds": f"+{best['price']}" if best['price'] > 0 else str(best['price']),
                     "bookmaker": best['book'],
                     "created_at": datetime.now(timezone.utc).isoformat()
                 })
         except: continue
-        time.sleep(0.2)
+        time.sleep(0.5)
 
     if first_baskets: 
         save_to_supabase(first_baskets, "first_baskets")
