@@ -26,6 +26,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('FirstBaskets'); 
   const [filter, setFilter] = useState('All');
+  const [basketSort, setBasketSort] = useState('Game');
   const [lastUpdated, setLastUpdated] = useState(new Date());
   
   // --- AUTH & PREMIUM STATE ---
@@ -151,8 +152,18 @@ export default function App() {
   const filteredEdges = filter === 'All' ? edges : edges.filter(e => e.market === filter);
   
   const alphaDogsList = getAlphaDogs();
+  
+  const sortedBaskets = [...baskets].sort((a, b) => {
+    if (basketSort === 'Grade') {
+      // Sorts highest EV Grade (Usage) to lowest
+      return parseFloat(b.first_shot_prob) - parseFloat(a.first_shot_prob);
+    }
+    // Default: Sort alphabetically by game so matchups stay grouped together
+    return a.game.localeCompare(b.game);
+  });
+
   const displayedAlphas = isPremium ? alphaDogsList : alphaDogsList.slice(0, 2);
-  const displayedBaskets = isPremium ? baskets : baskets.slice(0, 3);
+  const displayedBaskets = isPremium ? sortedBaskets : sortedBaskets.slice(0, 3);
   const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
 
   return (
@@ -259,6 +270,7 @@ export default function App() {
                         <div className="bg-white/5 p-4 rounded-2xl text-center border border-white/5">
                           <span className="block text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Priced Odds</span>
                           <span className="text-2xl font-black text-green-400 italic">{alpha.best_odds}</span>
+                          <span className="block text-[9px] text-slate-400 uppercase font-bold tracking-widest mt-1">{alpha.bookmaker}</span>
                         </div>
                         <div className="bg-white/5 p-4 rounded-2xl text-center border border-white/5">
                           <span className="block text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">True Prob</span>
@@ -310,10 +322,16 @@ export default function App() {
         {/* VIEW 2: FIRST BASKETS (MASTER BOARD) */}
         {view === 'FirstBaskets' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter flex items-center gap-3">
-                <Trophy className="text-indigo-500" /> First Basket Master Board
-              </h2>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter flex items-center gap-3">
+                  <Trophy className="text-indigo-500" /> First Basket Master Board
+                </h2>
+                <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
+                  <button onClick={() => setBasketSort('Game')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Game' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Game</button>
+                  <button onClick={() => setBasketSort('Grade')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Grade' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Grade</button>
+                </div>
+              </div>
               <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg">
                 <Clock className="w-3 h-3" /> Updated: {lastUpdated.toLocaleTimeString()}
               </div>
