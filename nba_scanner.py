@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 # --- 1. CONFIGURATION ---
 API_KEY = '5f628a5b66f578a4bea36edba378dac4'
-BDL_API_KEY = '34a924cc-1a40-4386-89e6-3701418c4132' # Added for Team lookups
+BDL_API_KEY = '34a924cc-1a40-4386-89e6-3701418c4132' 
 
 SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtbGpobHhwYWFtZW1kbmd2YWlyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTMyNDg4MiwiZXhwIjoyMDg2OTAwODgyfQ.cWDT8iW8nhr98S0WBfb-e9fjZXEJig9SYp1pnVrA20A'
@@ -34,16 +34,24 @@ def save_team_cache(cache):
 TEAM_CACHE = load_team_cache()
 
 def get_player_team(player_name):
-    """Uses the BDL API to find a player's team, caching the result to save credits."""
-    if player_name in TEAM_CACHE:
+    """Uses the BDL API to find a player's team with strict rate limit protection."""
+    # Don't return 'Unknown' from cache, force a retry if it failed previously
+    if player_name in TEAM_CACHE and TEAM_CACHE[player_name] != "Unknown":
         return TEAM_CACHE[player_name]
         
     print(f"      🕵️‍♂️ Identifying team for {player_name}...")
     headers = {'Authorization': BDL_API_KEY}
-    time.sleep(2.0) # Stay under the 30 req/min BDL limit
+    time.sleep(2.1) # Strictly > 2 seconds to avoid 30/min limit
     
     try:
         r = requests.get("https://api.balldontlie.io/v1/players", headers=headers, params={'search': player_name}, timeout=10)
+        
+        # If we hit the speed limit, sleep and retry once
+        if r.status_code == 429:
+            print("      ⏳ BDL Rate Limit. Sleeping 60s to protect math...")
+            time.sleep(60)
+            r = requests.get("https://api.balldontlie.io/v1/players", headers=headers, params={'search': player_name}, timeout=10)
+
         if r.status_code == 200:
             data = r.json()
             if data.get('data'):
@@ -52,7 +60,7 @@ def get_player_team(player_name):
                 save_team_cache(TEAM_CACHE)
                 return team_full
     except Exception as e:
-        print(f"      ❌ Could not identify team for {player_name}.")
+        pass
         
     return "Unknown"
 
@@ -92,17 +100,13 @@ def run_cloud_scan():
             all_games = r_games.json()
             game_ids = []
             
-            # Calculate the current date in US Eastern Time (UTC - 5 hours)
             us_now = datetime.now(timezone.utc) - timedelta(hours=5)
             us_today = us_now.strftime('%Y-%m-%d')
 
             for e in all_games:
                 try:
-                    # Parse the game time and convert to US Time
                     event_time = datetime.strptime(e['commence_time'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
                     event_us_time = event_time - timedelta(hours=5)
-                    
-                    # STRICT FILTER: Only add the game if it is happening TODAY in the US
                     if event_us_time.strftime('%Y-%m-%d') == us_today:
                         game_ids.append(e['id'])
                 except: continue
@@ -160,13 +164,12 @@ def run_cloud_scan():
 
     if found_edges: save_to_supabase(found_edges, "nba_edges")
 
-    # --- PART 2: FIRST BASKETS & REVERSE-ENGINEERED TIP MATH ---
+    # --- PART 2: FIRST BASKETS & BULLETPROOF TIP MATH ---
     print("\n🏆 Scanning First Baskets (Intelligence Layer Active)...")
     first_baskets = []
     
     for event_id in game_ids[:GAME_LIMIT]:
         try:
-            # We only need the guaranteed player_first_basket market now
             fb_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets=player_first_basket&oddsFormat=american"
             r_fb = requests.get(fb_url, timeout=15)
             
@@ -174,8 +177,10 @@ def run_cloud_scan():
                 continue
                     
             fb_data = r_fb.json()
+            home_team = fb_data.get('home_team')
+            away_team = fb_data.get('away_team')
             
-            # STEP 1: Gather all player odds for the game
+            # 1. Gather all player odds for the game
             player_odds = {}
             for book in fb_data.get('bookmakers', []):
                 if any(ignored in book.get('title') for ignored in BOOKS_TO_IGNORE): continue
@@ -188,45 +193,55 @@ def run_cloud_scan():
                                 player_odds[player] = []
                             player_odds[player].append({"book": book['title'], "price": price})
 
-            # STEP 2: Process players and sum up their probabilities by Team
+            # 2. Strict Team Mapping (Prevents the 100% Bug)
             game_players = []
-            team_implied_totals = {}
+            team_implied_totals = {home_team: 0.0, away_team: 0.0}
 
             for player, lines in player_odds.items():
                 best = max(lines, key=lambda x: x['price'])
                 prob = calculate_implied_prob(best['price'])
-                team_name = get_player_team(player)
+                bdl_team = get_player_team(player)
                 
-                if team_name not in team_implied_totals:
-                    team_implied_totals[team_name] = 0.0
-                team_implied_totals[team_name] += prob
+                assigned_team = "Unknown"
+                if bdl_team != "Unknown":
+                    # Fuzzy match: Look at just the mascot (e.g., "Lakers") to sync the APIs
+                    bdl_mascot = bdl_team.split()[-1] 
+                    if bdl_mascot in home_team:
+                        assigned_team = home_team
+                        team_implied_totals[home_team] += prob
+                    elif bdl_mascot in away_team:
+                        assigned_team = away_team
+                        team_implied_totals[away_team] += prob
                 
                 game_players.append({
                     "name": player,
-                    "team": team_name,
+                    "team": assigned_team,
                     "best_price": best['price'],
                     "best_book": best['book'],
                     "prob": prob
                 })
 
-            # STEP 3: Normalize the math and build the final database array
-            # Sportsbooks add "juice", so the total game probability might equal 120%. 
-            # We calculate against the total game juice to find the true, normalized 100% fair value.
-            total_game_juice = sum(team_implied_totals.values())
+            # 3. Calculate True Ratios (Home vs Away only)
+            total_identified_juice = team_implied_totals[home_team] + team_implied_totals[away_team]
 
             for p in game_players:
-                team_raw_prob = team_implied_totals.get(p["team"], 0.0)
-                
-                # 1. True Tip Win % (Team Implied / Total Game Implied) -> Removes bookie juice
-                tip_prob = (team_raw_prob / total_game_juice * 100) if total_game_juice > 0 else 50.0
-                
-                # 2. First Shot Usage (Player Implied / Team Implied) -> How often they take the shot for their team
-                first_shot_usage = (p["prob"] / team_raw_prob * 100) if team_raw_prob > 0 else 0.0
+                # If a player couldn't be mapped, default to baseline so they don't break the game math
+                if p["team"] == "Unknown":
+                    tip_prob = 50.0
+                    first_shot_usage = 0.0
+                else:
+                    team_raw_prob = team_implied_totals[p["team"]]
+                    
+                    # True Tip Win % (Home vs Away ratio)
+                    tip_prob = (team_raw_prob / total_identified_juice * 100) if total_identified_juice > 0 else 50.0
+                    
+                    # First Shot Usage (Player vs Their Own Team)
+                    first_shot_usage = (p["prob"] / team_raw_prob * 100) if team_raw_prob > 0 else 0.0
 
                 first_baskets.append({
                     "player_name": p["name"],
-                    "game": f"{fb_data.get('away_team')} vs {fb_data.get('home_team')}",
-                    "team": p["team"], 
+                    "game": f"{away_team} vs {home_team}",
+                    "team": p["team"] if p["team"] != "Unknown" else "TBD", 
                     "best_odds": f"+{p['best_price']}" if p['best_price'] > 0 else str(p['best_price']),
                     "bookmaker": p['best_book'],
                     "tip_win_prob": round(tip_prob, 1),
