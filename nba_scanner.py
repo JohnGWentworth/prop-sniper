@@ -19,8 +19,8 @@ def calculate_implied_prob(american_odds):
     """Converts +400 into 20.0%"""
     try:
         odds = int(american_odds)
-        if odds > 0: return (100 / (odds + 100)) * 100
-        else: return (abs(odds) / (abs(odds) + 100)) * 100
+        if odds > 0: return round((100 / (odds + 100)) * 100, 1)
+        else: return round((abs(odds) / (abs(odds) + 100)) * 100, 1)
     except:
         return 0.0
 
@@ -151,38 +151,49 @@ def run_cloud_scan():
                                 player_odds[player] = []
                             player_odds[player].append({"book": book['title'], "price": price})
 
+            game_players_added = 0
             for player, lines in player_odds.items():
-                # 1. Find the absolute best odds available
-                best_line = max(lines, key=lambda x: x['price'])
-                best_price = best_line['price']
-                
-                # 2. Find the Market Consensus (average of all OTHER books)
-                other_lines = [l for l in lines if l['book'] != best_line['book']]
-                if len(other_lines) > 0:
-                    consensus_prob = sum(calculate_implied_prob(l['price']) for l in other_lines) / len(other_lines)
-                else:
-                    consensus_prob = calculate_implied_prob(best_price) # Fallback if only 1 book has it
-                
-                # 3. Calculate the Einstein Expected Value (EV%)
-                decimal_odds = calculate_decimal_odds(best_price)
-                ev_percent = round(((consensus_prob / 100) * decimal_odds - 1) * 100, 1)
+                try:
+                    # 1. Safely find the absolute best odds available
+                    best_line = max(lines, key=lambda x: int(x['price']) if str(x['price']).lstrip('-').isdigit() else -9999)
+                    best_price = int(best_line['price'])
+                    
+                    # 2. Find the Market Consensus (average of all OTHER books)
+                    other_lines = [l for l in lines if l['book'] != best_line['book']]
+                    if len(other_lines) > 0:
+                        consensus_prob = sum(calculate_implied_prob(l['price']) for l in other_lines) / len(other_lines)
+                    else:
+                        consensus_prob = calculate_implied_prob(best_price) # Fallback
+                    
+                    # 3. Calculate the Einstein Expected Value (EV%)
+                    decimal_odds = calculate_decimal_odds(best_price)
+                    ev_percent = round(((consensus_prob / 100) * decimal_odds - 1) * 100, 1)
 
-                # 4. Standard Metrics
-                implied_prob = calculate_implied_prob(best_price)
-                baseline_usage = round(implied_prob * 2, 1)
+                    # 4. Standard Metrics
+                    implied_prob = calculate_implied_prob(best_price)
+                    baseline_usage = round(implied_prob * 2, 1)
 
-                first_baskets.append({
-                    "player_name": player,
-                    "game": f"{away_team} vs {home_team}",
-                    "team": f"{away_team} or {home_team}", 
-                    "best_odds": f"+{best_price}" if best_price > 0 else str(best_price),
-                    "bookmaker": best_line['book'],
-                    "tip_win_prob": round(implied_prob, 1),
-                    "first_shot_prob": baseline_usage, 
-                    "einstein_ev": ev_percent, # The new God-Tier stat
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                })
-        except Exception as e:
+                    first_baskets.append({
+                        "player_name": player,
+                        "game": f"{away_team} vs {home_team}",
+                        "team": f"{away_team} or {home_team}", 
+                        "best_odds": f"+{best_price}" if best_price > 0 else str(best_price),
+                        "bookmaker": best_line['book'],
+                        "tip_win_prob": round(implied_prob, 1),
+                        "first_shot_prob": baseline_usage, 
+                        "einstein_ev": ev_percent,
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    })
+                    game_players_added += 1
+                except Exception as player_e:
+                    # If ONE player has weird data, skip just them, not the whole game
+                    print(f"      ⚠️ Player Math Skipped ({player}): {player_e}")
+                    continue
+            
+            print(f"   ✅ Processed {game_players_added} players for {away_team} vs {home_team}")
+
+        except Exception as game_e:
+            print(f"      ⚠️ Game skipped due to API error: {game_e}")
             continue
         time.sleep(0.5)
 
