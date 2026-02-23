@@ -148,7 +148,19 @@ def run_cloud_scan():
     for event_id in game_ids[:GAME_LIMIT]:
         try:
             fb_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets={premium_markets}&oddsFormat=american"
-            fb_data = requests.get(fb_url, timeout=15).json()
+            r_fb = requests.get(fb_url, timeout=15)
+            
+            # --- AUTO-FALLBACK & ERROR CATCHER ---
+            if r_fb.status_code != 200:
+                print(f"      ⚠️ API Warning: {r_fb.text}")
+                print("      🔄 Falling back to standard 'player_first_basket'...")
+                fallback_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets=player_first_basket&oddsFormat=american"
+                r_fb = requests.get(fallback_url, timeout=15)
+                
+                if r_fb.status_code != 200:
+                    continue # If it still fails, skip this game
+                    
+            fb_data = r_fb.json()
             
             # STEP 1: Find the Tip-Win Probabilities for each team from 'first_team_to_score'
             team_tip_probs = {}
