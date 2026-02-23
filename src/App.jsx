@@ -35,11 +35,51 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: edgeData } = await supabase.from('nba_edges').select('*').order('created_at', { ascending: false }).limit(30);
-      if (edgeData) setEdges(edgeData);
+      // 1. FRESHNESS FILTER: Only grab data from the last 16 hours
+      const cutoffTime = new Date(Date.now() - 16 * 60 * 60 * 1000).toISOString();
 
-      const { data: basketData } = await supabase.from('first_baskets').select('*').order('created_at', { ascending: false }).limit(60);
-      if (basketData) setBaskets(basketData);
+      // Fetch Edges
+      const { data: edgeData } = await supabase
+        .from('nba_edges')
+        .select('*')
+        .gte('created_at', cutoffTime)
+        .order('created_at', { ascending: false })
+        .limit(200); // Increased limit to grab history before deduplicating
+
+      if (edgeData) {
+        // 2. DEDUPLICATION ENGINE: Keep only the newest row per Player per Market
+        const uniqueEdges = [];
+        const seenEdges = new Set();
+        edgeData.forEach(edge => {
+          const uniqueKey = `${edge.player_name}_${edge.market}`;
+          if (!seenEdges.has(uniqueKey)) {
+            seenEdges.add(uniqueKey);
+            uniqueEdges.push(edge);
+          }
+        });
+        setEdges(uniqueEdges);
+      }
+
+      // Fetch First Baskets
+      const { data: basketData } = await supabase
+        .from('first_baskets')
+        .select('*')
+        .gte('created_at', cutoffTime)
+        .order('created_at', { ascending: false })
+        .limit(300);
+
+      if (basketData) {
+        // 2. DEDUPLICATION ENGINE: Keep only the newest row per Player
+        const uniqueBaskets = [];
+        const seenPlayers = new Set();
+        basketData.forEach(basket => {
+          if (!seenPlayers.has(basket.player_name)) {
+            seenPlayers.add(basket.player_name);
+            uniqueBaskets.push(basket);
+          }
+        });
+        setBaskets(uniqueBaskets);
+      }
 
       setLastUpdated(new Date());
     } catch (err) {
