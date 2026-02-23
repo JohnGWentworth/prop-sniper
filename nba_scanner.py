@@ -2,7 +2,7 @@ import requests
 import time
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # --- 1. CONFIGURATION ---
 API_KEY = '5f628a5b66f578a4bea36edba378dac4'
@@ -13,7 +13,7 @@ SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 # --- 2. SETTINGS ---
 GAP_THRESHOLD = 1.0 
-GAME_LIMIT = 8 
+GAME_LIMIT = 15 
 MARKETS_TO_SCAN = ['player_points', 'player_rebounds', 'player_assists']
 BOOKS_TO_IGNORE = ['Bovada', 'MyBookie.ag', 'BetOnline.ag', 'BetRivers']
 TEAM_CACHE_FILE = "player_teams_cache.json"
@@ -88,13 +88,34 @@ def run_cloud_scan():
     
     try:
         r_games = requests.get(f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={API_KEY}", timeout=15)
-        game_ids = [e['id'] for e in r_games.json()] if r_games.status_code == 200 else []
+        if r_games.status_code == 200:
+            all_games = r_games.json()
+            game_ids = []
+            
+            # Calculate the current date in US Eastern Time (UTC - 5 hours)
+            us_now = datetime.now(timezone.utc) - timedelta(hours=5)
+            us_today = us_now.strftime('%Y-%m-%d')
+
+            for e in all_games:
+                try:
+                    # Parse the game time and convert to US Time
+                    event_time = datetime.strptime(e['commence_time'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+                    event_us_time = event_time - timedelta(hours=5)
+                    
+                    # STRICT FILTER: Only add the game if it is happening TODAY in the US
+                    if event_us_time.strftime('%Y-%m-%d') == us_today:
+                        game_ids.append(e['id'])
+                except: continue
+                
+            print(f"📅 Filtered Schedule: Found {len(game_ids)} games scheduled for today ({us_today}).")
+        else:
+            game_ids = []
     except:
         print("❌ Could not fetch schedule.")
         return
 
     if not game_ids:
-        print("🔍 No games found.")
+        print("🔍 No games found for today.")
         return
 
     # --- PART 1: LIVE MARKET EDGES ---
@@ -139,94 +160,82 @@ def run_cloud_scan():
 
     if found_edges: save_to_supabase(found_edges, "nba_edges")
 
-    # --- PART 2: FIRST BASKETS & TIP-OFF MATH ---
+    # --- PART 2: FIRST BASKETS & REVERSE-ENGINEERED TIP MATH ---
     print("\n🏆 Scanning First Baskets (Intelligence Layer Active)...")
     first_baskets = []
     
-    # Removed 'player_first_basket_method' as it is unsupported by The Odds API
-    premium_markets = "player_first_basket,first_team_to_score"
-
     for event_id in game_ids[:GAME_LIMIT]:
         try:
-            fb_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets={premium_markets}&oddsFormat=american"
+            # We only need the guaranteed player_first_basket market now
+            fb_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets=player_first_basket&oddsFormat=american"
             r_fb = requests.get(fb_url, timeout=15)
             
-            # --- AUTO-FALLBACK & ERROR CATCHER ---
             if r_fb.status_code != 200:
-                print(f"      ⚠️ API Warning: {r_fb.text}")
-                print("      🔄 Falling back to standard 'player_first_basket'...")
-                fallback_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={API_KEY}&regions=us&markets=player_first_basket&oddsFormat=american"
-                r_fb = requests.get(fallback_url, timeout=15)
-                
-                if r_fb.status_code != 200:
-                    continue # If it still fails, skip this game
+                continue
                     
             fb_data = r_fb.json()
             
-            # STEP 1: Find the Tip-Win Probabilities for each team from 'first_team_to_score'
-            team_tip_probs = {}
-            for book in fb_data.get('bookmakers', []):
-                for m in book.get('markets', []):
-                    if m['key'] == 'first_team_to_score':
-                        for out in m.get('outcomes', []):
-                            team_name = out.get('description')
-                            prob = calculate_implied_prob(out.get('price'))
-                            if team_name and team_name not in team_tip_probs:
-                                team_tip_probs[team_name] = prob
-
-            # STEP 2: Gather all odds
+            # STEP 1: Gather all player odds for the game
             player_odds = {}
             for book in fb_data.get('bookmakers', []):
                 if any(ignored in book.get('title') for ignored in BOOKS_TO_IGNORE): continue
                 for m in book.get('markets', []):
-                    market_key = m['key']
                     for out in m.get('outcomes', []):
-                        player_or_team = out.get('description')
+                        player = out.get('description')
                         price = out.get('price')
-                        if player_or_team and price:
-                            unique_id = f"{player_or_team}_{market_key}"
-                            if unique_id not in player_odds: 
-                                player_odds[unique_id] = {
-                                    "name": player_or_team,
-                                    "market_type": market_key,
-                                    "lines": []
-                                }
-                            player_odds[unique_id]["lines"].append({"book": book['title'], "price": price})
+                        if player and price:
+                            if player not in player_odds: 
+                                player_odds[player] = []
+                            player_odds[player].append({"book": book['title'], "price": price})
 
-            # STEP 3: Process the Intelligence and Build the Database Array
-            for unique_id, data in player_odds.items():
-                best = max(data["lines"], key=lambda x: x['price'])
-                market_type = data["market_type"]
-                player_prob = calculate_implied_prob(best['price'])
+            # STEP 2: Process players and sum up their probabilities by Team
+            game_players = []
+            team_implied_totals = {}
+
+            for player, lines in player_odds.items():
+                best = max(lines, key=lambda x: x['price'])
+                prob = calculate_implied_prob(best['price'])
+                team_name = get_player_team(player)
                 
-                team_name = "Unknown"
-                tip_prob = 50.0
-                first_shot_usage = 0.0
+                if team_name not in team_implied_totals:
+                    team_implied_totals[team_name] = 0.0
+                team_implied_totals[team_name] += prob
+                
+                game_players.append({
+                    "name": player,
+                    "team": team_name,
+                    "best_price": best['price'],
+                    "best_book": best['book'],
+                    "prob": prob
+                })
 
-                if market_type == "player_first_basket":
-                    # Figure out their team and usage
-                    team_name = get_player_team(data["name"])
-                    tip_prob = team_tip_probs.get(team_name, 50.0)
-                    first_shot_usage = round((player_prob / tip_prob) * 100, 1) if tip_prob > 0 else 0.0
-                    clean_market = "First Basket"
-                    
-                elif market_type == "first_team_to_score":
-                    team_name = data["name"]
-                    tip_prob = player_prob
-                    first_shot_usage = 100.0 # They are the team
-                    clean_market = "First Team to Score"
+            # STEP 3: Normalize the math and build the final database array
+            # Sportsbooks add "juice", so the total game probability might equal 120%. 
+            # We calculate against the total game juice to find the true, normalized 100% fair value.
+            total_game_juice = sum(team_implied_totals.values())
+
+            for p in game_players:
+                team_raw_prob = team_implied_totals.get(p["team"], 0.0)
+                
+                # 1. True Tip Win % (Team Implied / Total Game Implied) -> Removes bookie juice
+                tip_prob = (team_raw_prob / total_game_juice * 100) if total_game_juice > 0 else 50.0
+                
+                # 2. First Shot Usage (Player Implied / Team Implied) -> How often they take the shot for their team
+                first_shot_usage = (p["prob"] / team_raw_prob * 100) if team_raw_prob > 0 else 0.0
 
                 first_baskets.append({
-                    "player_name": data["name"],
+                    "player_name": p["name"],
                     "game": f"{fb_data.get('away_team')} vs {fb_data.get('home_team')}",
-                    "team": team_name, 
-                    "best_odds": f"+{best['price']}" if best['price'] > 0 else str(best['price']),
-                    "bookmaker": best['book'],
-                    "tip_win_prob": float(tip_prob),
-                    "first_shot_prob": float(first_shot_usage),
+                    "team": p["team"], 
+                    "best_odds": f"+{p['best_price']}" if p['best_price'] > 0 else str(p['best_price']),
+                    "bookmaker": p['best_book'],
+                    "tip_win_prob": round(tip_prob, 1),
+                    "first_shot_prob": round(first_shot_usage, 1),
                     "created_at": datetime.now(timezone.utc).isoformat()
                 })
-        except: continue
+        except Exception as e:
+            print(f"      ⚠️ Game Error: {e}")
+            continue
         time.sleep(0.5)
 
     if first_baskets: 
