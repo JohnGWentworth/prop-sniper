@@ -143,6 +143,7 @@ export default function App() {
   
   const sortedBaskets = [...baskets].sort((a, b) => {
     if (basketSort === 'Grade') return parseFloat(b.first_shot_prob) - parseFloat(a.first_shot_prob);
+    if (basketSort === 'EV') return parseFloat(b.einstein_ev || 0) - parseFloat(a.einstein_ev || 0);
     return a.game.localeCompare(b.game);
   });
 
@@ -308,6 +309,7 @@ export default function App() {
                 <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
                   <button onClick={() => setBasketSort('Game')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Game' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Game</button>
                   <button onClick={() => setBasketSort('Grade')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Grade' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Grade</button>
+                  <button onClick={() => setBasketSort('EV')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'EV' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By EV</button>
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg">
