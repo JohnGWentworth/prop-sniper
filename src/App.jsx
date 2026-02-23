@@ -12,7 +12,8 @@ import {
   Flame,
   Lock,
   ShieldCheck,
-  LogOut
+  LogOut,
+  BrainCircuit
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co';
@@ -29,26 +30,22 @@ export default function App() {
   const [basketSort, setBasketSort] = useState('Game');
   const [lastUpdated, setLastUpdated] = useState(new Date());
   
-  // --- AUTH & PREMIUM STATE ---
   const [isPremium, setIsPremium] = useState(false); 
   const [accessKey, setAccessKey] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. FRESHNESS FILTER: Only grab data from the last 16 hours
       const cutoffTime = new Date(Date.now() - 16 * 60 * 60 * 1000).toISOString();
 
-      // Fetch Edges
       const { data: edgeData } = await supabase
         .from('nba_edges')
         .select('*')
         .gte('created_at', cutoffTime)
         .order('created_at', { ascending: false })
-        .limit(200); // Increased limit to grab history before deduplicating
+        .limit(200);
 
       if (edgeData) {
-        // 2. DEDUPLICATION ENGINE: Keep only the newest row per Player per Market
         const uniqueEdges = [];
         const seenEdges = new Set();
         edgeData.forEach(edge => {
@@ -61,7 +58,6 @@ export default function App() {
         setEdges(uniqueEdges);
       }
 
-      // Fetch First Baskets
       const { data: basketData } = await supabase
         .from('first_baskets')
         .select('*')
@@ -70,7 +66,6 @@ export default function App() {
         .limit(300);
 
       if (basketData) {
-        // 2. DEDUPLICATION ENGINE: Keep only the newest row per Player
         const uniqueBaskets = [];
         const seenPlayers = new Set();
         basketData.forEach(basket => {
@@ -96,7 +91,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // --- ACCESS KEY LOGIC ---
   useEffect(() => {
     if (accessKey === "PRO2026") {
       setIsPremium(true);
@@ -113,7 +107,6 @@ export default function App() {
     localStorage.removeItem('propSniperProAccess');
   };
 
-  // --- GRADE CALCULATION (EV SCORE) ---
   const getSniperGrade = (usage) => {
     if (usage >= 30) return { grade: 'A+', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
     if (usage >= 25) return { grade: 'A', color: 'text-green-400 bg-green-500/10 border-green-500/20' };
@@ -122,7 +115,6 @@ export default function App() {
     return { grade: 'F', color: 'text-red-400 bg-red-500/10 border-red-500/20' };
   };
 
-  // --- ALPHA DOGS CALCULATION ---
   const getAlphaDogs = () => {
     const games = {};
     baskets.forEach(b => {
@@ -136,11 +128,9 @@ export default function App() {
       if (gamePlayers.length >= 2) {
         const topDog = gamePlayers[0];
         const runnerUp = gamePlayers[1];
-        const topDogUsage = parseFloat(topDog.first_shot_prob);
-        const runnerUpUsage = parseFloat(runnerUp.first_shot_prob);
-        const gap = topDogUsage - runnerUpUsage;
+        const gap = parseFloat(topDog.first_shot_prob) - parseFloat(runnerUp.first_shot_prob);
 
-        if (topDogUsage >= 20.0 && gap >= 4.0) {
+        if (parseFloat(topDog.first_shot_prob) >= 20.0 && gap >= 4.0) {
           alphas.push({ ...topDog, dominanceGap: gap.toFixed(1) });
         }
       }
@@ -148,23 +138,32 @@ export default function App() {
     return alphas.sort((a, b) => parseFloat(b.dominanceGap) - parseFloat(a.dominanceGap));
   };
 
-  // --- STRICT PAYWALL LIMITS ---
   const filteredEdges = filter === 'All' ? edges : edges.filter(e => e.market === filter);
-  
   const alphaDogsList = getAlphaDogs();
   
   const sortedBaskets = [...baskets].sort((a, b) => {
-    if (basketSort === 'Grade') {
-      // Sorts highest EV Grade (Usage) to lowest
-      return parseFloat(b.first_shot_prob) - parseFloat(a.first_shot_prob);
-    }
-    // Default: Sort alphabetically by game so matchups stay grouped together
+    if (basketSort === 'Grade') return parseFloat(b.first_shot_prob) - parseFloat(a.first_shot_prob);
     return a.game.localeCompare(b.game);
   });
 
   const displayedAlphas = isPremium ? alphaDogsList : alphaDogsList.slice(0, 2);
   const displayedBaskets = isPremium ? sortedBaskets : sortedBaskets.slice(0, 3);
   const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
+
+  // Reusable EV Box Component
+  const EVBox = ({ ev }) => {
+    const isPositive = parseFloat(ev) > 0;
+    return (
+      <div className={`p-3 rounded-xl border text-center flex flex-col items-center justify-center ${isPositive ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/5'}`}>
+        <span className={`block text-[8px] uppercase font-black tracking-widest mb-1 flex items-center gap-1 ${isPositive ? 'text-emerald-400' : 'text-slate-500'}`}>
+          {isPositive && <BrainCircuit size={10} />} Einstein EV
+        </span>
+        <span className={`text-lg font-black ${isPositive ? 'text-emerald-400' : 'text-white'}`}>
+          {isPositive ? '+' : ''}{ev || '0.0'}%
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-slate-200 font-sans selection:bg-indigo-500/30">
@@ -179,7 +178,6 @@ export default function App() {
             </div>
             
             <div className="flex items-center gap-4">
-              {/* TOP NAV ACCESS CONTROL */}
               {!isPremium ? (
                 <input 
                   type="password" 
@@ -204,30 +202,14 @@ export default function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 py-8 text-left">
-        {/* Navigation Tabs */}
         <div className="flex flex-col sm:flex-row gap-4 mb-10">
-          <button 
-            onClick={() => setView('AlphaDogs')}
-            className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${
-              view === 'AlphaDogs' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'
-            }`}
-          >
+          <button onClick={() => setView('AlphaDogs')} className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${view === 'AlphaDogs' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
             <Crown className="w-4 h-4" /> Alpha Dogs
           </button>
-          <button 
-            onClick={() => setView('FirstBaskets')}
-            className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${
-              view === 'FirstBaskets' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'
-            }`}
-          >
+          <button onClick={() => setView('FirstBaskets')} className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${view === 'FirstBaskets' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
             <Trophy className="w-4 h-4" /> The Master Board
           </button>
-          <button 
-            onClick={() => setView('Edges')}
-            className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${
-              view === 'Edges' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'
-            }`}
-          >
+          <button onClick={() => setView('Edges')} className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${view === 'Edges' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
             <Zap className="w-4 h-4" /> Live Edges
           </button>
         </div>
@@ -266,20 +248,17 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-4 mb-6">
-                        <div className="bg-white/5 p-4 rounded-2xl text-center border border-white/5">
-                          <span className="block text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Priced Odds</span>
-                          <span className="text-2xl font-black text-green-400 italic">{alpha.best_odds}</span>
-                          <span className="block text-[9px] text-slate-400 uppercase font-bold tracking-widest mt-1">{alpha.bookmaker}</span>
+                      <div className="grid grid-cols-3 gap-3 mb-6">
+                        <div className="bg-white/5 p-3 rounded-xl text-center border border-white/5 flex flex-col justify-center">
+                          <span className="block text-[9px] text-slate-500 uppercase font-bold tracking-widest mb-1">Odds</span>
+                          <span className="text-xl font-black text-green-400 italic">{alpha.best_odds}</span>
+                          <span className="block text-[8px] text-slate-400 uppercase font-bold tracking-widest mt-1">{alpha.bookmaker}</span>
                         </div>
-                        <div className="bg-white/5 p-4 rounded-2xl text-center border border-white/5">
-                          <span className="block text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">True Prob</span>
-                          <span className="text-2xl font-black text-white">{alpha.tip_win_prob}%</span>
+                        <div className="bg-indigo-600/10 p-3 rounded-xl text-center border border-indigo-500/20 flex flex-col justify-center">
+                          <span className="block text-[9px] text-indigo-400 uppercase font-bold tracking-widest mb-1">Early Usage</span>
+                          <span className="text-xl font-black text-indigo-400">{alpha.first_shot_prob}%</span>
                         </div>
-                        <div className="bg-indigo-600/10 p-4 rounded-2xl text-center border border-indigo-500/20">
-                          <span className="block text-[10px] text-indigo-400 uppercase font-bold tracking-widest mb-1">Early Usage</span>
-                          <span className="text-2xl font-black text-indigo-400">{alpha.first_shot_prob}%</span>
-                        </div>
+                        <EVBox ev={alpha.einstein_ev} />
                       </div>
 
                       <div className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/5">
@@ -295,13 +274,13 @@ export default function App() {
               ) : loading ? (
                 <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-3xl">
                   <Crown className="w-12 h-12 text-slate-700 mx-auto mb-4 animate-pulse" />
-                  <p className="text-slate-500 uppercase font-black tracking-widest text-sm">Calculating Alphas...</p>
+                  <p className="text-slate-500 uppercase font-black tracking-widest text-sm">Calculating...</p>
                 </div>
               ) : (
                 <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-3xl bg-black/20">
                   <Crown className="w-12 h-12 text-slate-700 mx-auto mb-4" />
                   <p className="text-slate-300 uppercase font-black tracking-widest text-lg italic mb-2">No Alpha Dogs Qualify Today</p>
-                  <p className="text-slate-500 text-sm max-w-lg mx-auto font-medium">The math shows no player has a dominant usage gap over their teammates on tonight's slate. Check the Master Board for standard targets.</p>
+                  <p className="text-slate-500 text-sm max-w-lg mx-auto font-medium">The math shows no player has a dominant usage gap over their teammates on tonight's slate.</p>
                 </div>
               )}
             </div>
@@ -311,7 +290,6 @@ export default function App() {
                 <div className="relative z-20 flex flex-col items-center">
                   <Lock className="text-indigo-500 mb-4" size={32} />
                   <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {alphaDogsList.length - 2} More Alpha Dogs</h3>
-                  <p className="text-slate-400 text-sm max-w-lg mb-8 font-medium">Upgrade to Pro to see the complete list of players dominating their team's early usage tonight.</p>
                   <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
                 </div>
               </div>
@@ -342,7 +320,7 @@ export default function App() {
                 displayedBaskets.map((basket, i) => {
                   const gradeInfo = getSniperGrade(basket.first_shot_prob);
                   return (
-                    <div key={i} className="bg-[#0f0f0f] border border-white/5 rounded-2xl p-6 relative overflow-hidden group hover:border-indigo-500/30 transition-all">
+                    <div key={i} className="bg-[#0f0f0f] border border-white/5 rounded-2xl p-5 relative overflow-hidden group hover:border-indigo-500/30 transition-all">
                       <div className="absolute -right-4 -top-4 text-white/[0.02] group-hover:text-white/[0.05] transition-colors"><Target size={120} /></div>
                       
                       <div className="relative z-10">
@@ -357,24 +335,25 @@ export default function App() {
                           </div>
                         </div>
                         
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Best Odds</span>
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Best Market Odds</span>
                             <div className="text-right">
-                               <span className="text-2xl font-black text-green-400 italic">{basket.best_odds}</span>
-                               <p className="text-[9px] text-slate-500 uppercase font-bold">{basket.bookmaker}</p>
+                               <span className="text-xl font-black text-green-400 italic">{basket.best_odds}</span>
+                               <p className="text-[8px] text-slate-500 uppercase font-bold">{basket.bookmaker}</p>
                             </div>
                           </div>
                           
-                          <div className="grid grid-cols-2 gap-2 pt-2">
-                              <div className="bg-white/5 p-3 rounded-xl border border-white/5 text-center">
-                                  <span className="block text-[9px] text-slate-500 uppercase font-bold tracking-widest mb-1">Implied Prob</span>
-                                  <span className="text-lg font-black text-white">{basket.tip_win_prob}%</span>
+                          <div className="grid grid-cols-3 gap-2">
+                              <div className="bg-white/5 p-2 rounded-xl border border-white/5 text-center flex flex-col justify-center">
+                                  <span className="block text-[8px] text-slate-500 uppercase font-bold tracking-widest mb-1">True Prob</span>
+                                  <span className="text-sm font-black text-white">{basket.tip_win_prob}%</span>
                               </div>
-                              <div className="bg-indigo-600/10 p-3 rounded-xl border border-indigo-500/20 text-center">
-                                  <span className="block text-[9px] text-indigo-400 uppercase font-bold tracking-widest mb-1">Early Usage</span>
-                                  <span className="text-lg font-black text-indigo-400">{basket.first_shot_prob}%</span>
+                              <div className="bg-indigo-600/10 p-2 rounded-xl border border-indigo-500/20 text-center flex flex-col justify-center">
+                                  <span className="block text-[8px] text-indigo-400 uppercase font-bold tracking-widest mb-1">Usage</span>
+                                  <span className="text-sm font-black text-indigo-400">{basket.first_shot_prob}%</span>
                               </div>
+                              <EVBox ev={basket.einstein_ev} />
                           </div>
                         </div>
                       </div>
