@@ -143,7 +143,8 @@ def run_cloud_scan():
     print("\n🏆 Scanning First Baskets (Intelligence Layer Active)...")
     first_baskets = []
     
-    premium_markets = "player_first_basket,first_team_to_score,player_first_basket_method"
+    # Removed 'player_first_basket_method' as it is unsupported by The Odds API
+    premium_markets = "player_first_basket,first_team_to_score"
 
     for event_id in game_ids[:GAME_LIMIT]:
         try:
@@ -214,13 +215,6 @@ def run_cloud_scan():
                     tip_prob = player_prob
                     first_shot_usage = 100.0 # They are the team
                     clean_market = "First Team to Score"
-                    
-                elif market_type == "player_first_basket_method":
-                    base_name = data["name"].split(" - ")[0] if " - " in data["name"] else data["name"]
-                    team_name = get_player_team(base_name)
-                    tip_prob = team_tip_probs.get(team_name, 50.0)
-                    first_shot_usage = round((player_prob / tip_prob) * 100, 1) if tip_prob > 0 else 0.0
-                    clean_market = "First Basket Method"
 
                 first_baskets.append({
                     "player_name": data["name"],
