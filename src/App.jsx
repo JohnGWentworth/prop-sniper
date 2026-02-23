@@ -10,8 +10,9 @@ import {
   Target,
   Crown,
   Flame,
-  ChevronRight,
-  Lock
+  Lock,
+  ShieldCheck,
+  LogOut
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co';
@@ -26,7 +27,10 @@ export default function App() {
   const [view, setView] = useState('FirstBaskets'); 
   const [filter, setFilter] = useState('All');
   const [lastUpdated, setLastUpdated] = useState(new Date());
-  const [isPremium, setIsPremium] = useState(false); // Set to true to bypass locks for testing
+  
+  // --- AUTH & PREMIUM STATE ---
+  const [isPremium, setIsPremium] = useState(false); 
+  const [accessKey, setAccessKey] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -51,7 +55,22 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const filteredEdges = filter === 'All' ? edges : edges.filter(e => e.market === filter);
+  // --- ACCESS KEY LOGIC ---
+  useEffect(() => {
+    if (accessKey === "PRO2026") {
+      setIsPremium(true);
+      localStorage.setItem('propSniperProAccess', 'true');
+    }
+    if (localStorage.getItem('propSniperProAccess') === 'true') {
+      setIsPremium(true);
+    }
+  }, [accessKey]);
+
+  const handleLogout = () => {
+    setIsPremium(false);
+    setAccessKey('');
+    localStorage.removeItem('propSniperProAccess');
+  };
 
   // --- GRADE CALCULATION (EV SCORE) ---
   const getSniperGrade = (usage) => {
@@ -64,7 +83,6 @@ export default function App() {
 
   // --- ALPHA DOGS CALCULATION ---
   const getAlphaDogs = () => {
-    // Group players by game
     const games = {};
     baskets.forEach(b => {
       if (!games[b.game]) games[b.game] = [];
@@ -73,32 +91,29 @@ export default function App() {
 
     let alphas = [];
     Object.values(games).forEach(gamePlayers => {
-      // Sort players in the game by usage highest to lowest (parsing as numbers)
       gamePlayers.sort((a, b) => parseFloat(b.first_shot_prob) - parseFloat(a.first_shot_prob));
-      
       if (gamePlayers.length >= 2) {
         const topDog = gamePlayers[0];
         const runnerUp = gamePlayers[1];
-        
-        // Strictly calculate as floats to prevent JS string math errors
         const topDogUsage = parseFloat(topDog.first_shot_prob);
         const runnerUpUsage = parseFloat(runnerUp.first_shot_prob);
         const gap = topDogUsage - runnerUpUsage;
 
-        // Only include them if they have a real lead over the rest of the players
-        // Lowered threshold slightly to 4.0 to catch more valid alpha targets
         if (topDogUsage >= 20.0 && gap >= 4.0) {
           alphas.push({ ...topDog, dominanceGap: gap.toFixed(1) });
         }
       }
     });
-
-    // Sort the final Alpha list by biggest dominance gap
     return alphas.sort((a, b) => parseFloat(b.dominanceGap) - parseFloat(a.dominanceGap));
   };
 
+  // --- STRICT PAYWALL LIMITS ---
+  const filteredEdges = filter === 'All' ? edges : edges.filter(e => e.market === filter);
+  
   const alphaDogsList = getAlphaDogs();
   const displayedAlphas = isPremium ? alphaDogsList : alphaDogsList.slice(0, 2);
+  const displayedBaskets = isPremium ? baskets : baskets.slice(0, 3);
+  const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-slate-200 font-sans selection:bg-indigo-500/30">
@@ -109,11 +124,30 @@ export default function App() {
               <div className="p-2 bg-indigo-600 rounded-lg shadow-lg shadow-indigo-600/20">
                 <Target className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-bold tracking-tight text-white italic">PropSniper <span className="text-indigo-500">Pro</span></span>
+              <span className="text-xl font-bold tracking-tight text-white italic hidden sm:block">PropSniper <span className="text-indigo-500">Pro</span></span>
             </div>
-            <button onClick={fetchData} className="p-2 hover:bg-white/5 rounded-full transition-colors border border-white/5">
-              <RefreshCcw className={`w-4 h-4 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+            
+            <div className="flex items-center gap-4">
+              {/* TOP NAV ACCESS CONTROL */}
+              {!isPremium ? (
+                <input 
+                  type="password" 
+                  placeholder="Enter Access Key..." 
+                  value={accessKey} 
+                  onChange={(e) => setAccessKey(e.target.value)} 
+                  className="bg-black/40 border border-white/10 rounded-lg py-1.5 px-3 text-xs text-white focus:outline-none focus:border-indigo-500/50 w-36 sm:w-48 transition-all" 
+                />
+              ) : (
+                <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/20 px-3 py-1.5 rounded-lg">
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-widest flex items-center gap-1.5"><ShieldCheck size={14} /> Pro Active</span>
+                  <button onClick={handleLogout} className="text-slate-400 hover:text-white transition-colors" title="Sign Out"><LogOut size={14} /></button>
+                </div>
+              )}
+
+              <button onClick={fetchData} className="p-2 hover:bg-white/5 rounded-full transition-colors border border-white/5">
+                <RefreshCcw className={`w-4 h-4 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -235,19 +269,19 @@ export default function App() {
 
         {/* VIEW 2: FIRST BASKETS (MASTER BOARD) */}
         {view === 'FirstBaskets' && (
-          <>
+          <div className="space-y-6">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter flex items-center gap-3">
                 <Trophy className="text-indigo-500" /> First Basket Master Board
               </h2>
-              <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-2">
+              <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg">
                 <Clock className="w-3 h-3" /> Updated: {lastUpdated.toLocaleTimeString()}
               </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {baskets.length > 0 ? (
-                baskets.map((basket, i) => {
+              {displayedBaskets.length > 0 ? (
+                displayedBaskets.map((basket, i) => {
                   const gradeInfo = getSniperGrade(basket.first_shot_prob);
                   return (
                     <div key={i} className="bg-[#0f0f0f] border border-white/5 rounded-2xl p-6 relative overflow-hidden group hover:border-indigo-500/30 transition-all">
@@ -296,12 +330,22 @@ export default function App() {
                 </div>
               )}
             </div>
-          </>
+
+            {!isPremium && baskets.length > 3 && (
+              <div className="mt-8 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center relative overflow-hidden">
+                <div className="relative z-20 flex flex-col items-center">
+                  <Lock className="text-indigo-500 mb-4" size={32} />
+                  <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {baskets.length - 3} More First Basket Targets</h3>
+                  <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* VIEW 3: LIVE EDGES (Legacy) */}
         {view === 'Edges' && (
-          <div className="opacity-80">
+          <div className="opacity-90">
             <div className="flex items-center justify-between mb-6">
               <div className="flex bg-white/5 p-1 rounded-xl">
                 {['All', 'Points', 'Rebounds', 'Assists'].map((tab) => (
@@ -313,8 +357,8 @@ export default function App() {
             </div>
 
             <div className="space-y-4">
-              {filteredEdges.length > 0 ? (
-                filteredEdges.map((edge) => (
+              {displayedEdges.length > 0 ? (
+                displayedEdges.map((edge) => (
                   <div key={edge.id} className="bg-[#0f0f0f] border border-white/5 rounded-2xl p-5">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                       <div className="flex-1">
@@ -348,6 +392,16 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {!isPremium && filteredEdges.length > 3 && (
+              <div className="mt-4 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center relative overflow-hidden">
+                <div className="relative z-20 flex flex-col items-center">
+                  <Lock className="text-indigo-500 mb-4" size={32} />
+                  <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {filteredEdges.length - 3} More Market Edges</h3>
+                  <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
