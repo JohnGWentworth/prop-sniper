@@ -1,0 +1,26 @@
+name: Daily Matchup Intelligence
+
+on:
+  schedule:
+    # This runs at 14:00 UTC every day (Which is 9:00 AM EST)
+    - cron: '0 14 * * *'
+  workflow_dispatch: # Allows you to click the manual "Run Now" button
+
+jobs:
+  update-defense-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Libraries
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Defense Scraper
+        run: python defense_scraper.py
