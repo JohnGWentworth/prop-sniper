@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js';
 import { 
-  TrendingUp, 
   Clock, 
-  AlertCircle,
   Trophy,
   RefreshCcw,
-  Zap,
   Target,
   Crown,
   Flame,
   Lock,
   ShieldCheck,
   LogOut,
-  BrainCircuit
+  BrainCircuit,
+  ShieldAlert,
+  Swords,
+  Activity
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://lmljhlxpaamemdngvair.supabase.co';
@@ -22,12 +22,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const whopLink = "https://whop.com/checkout/plan_EFF1P6AlgcidP";
 
 export default function App() {
-  const [edges, setEdges] = useState([]);
   const [baskets, setBaskets] = useState([]);
+  const [defense, setDefense] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('FirstBaskets'); 
-  const [filter, setFilter] = useState('All');
-  const [basketSort, setBasketSort] = useState('Game');
+  const [basketSort, setBasketSort] = useState('EV');
   const [lastUpdated, setLastUpdated] = useState(new Date());
   
   const [isPremium, setIsPremium] = useState(false); 
@@ -38,26 +37,7 @@ export default function App() {
     try {
       const cutoffTime = new Date(Date.now() - 16 * 60 * 60 * 1000).toISOString();
 
-      const { data: edgeData } = await supabase
-        .from('nba_edges')
-        .select('*')
-        .gte('created_at', cutoffTime)
-        .order('created_at', { ascending: false })
-        .limit(200);
-
-      if (edgeData) {
-        const uniqueEdges = [];
-        const seenEdges = new Set();
-        edgeData.forEach(edge => {
-          const uniqueKey = `${edge.player_name}_${edge.market}`;
-          if (!seenEdges.has(uniqueKey)) {
-            seenEdges.add(uniqueKey);
-            uniqueEdges.push(edge);
-          }
-        });
-        setEdges(uniqueEdges);
-      }
-
+      // Fetch First Baskets
       const { data: basketData } = await supabase
         .from('first_baskets')
         .select('*')
@@ -76,6 +56,12 @@ export default function App() {
         });
         setBaskets(uniqueBaskets);
       }
+
+      // Fetch Defense Data
+      const { data: defenseData } = await supabase
+        .from('team_defense')
+        .select('*');
+      if (defenseData) setDefense(defenseData);
 
       setLastUpdated(new Date());
     } catch (err) {
@@ -138,7 +124,6 @@ export default function App() {
     return alphas.sort((a, b) => parseFloat(b.dominanceGap) - parseFloat(a.dominanceGap));
   };
 
-  const filteredEdges = filter === 'All' ? edges : edges.filter(e => e.market === filter);
   const alphaDogsList = getAlphaDogs();
   
   const sortedBaskets = [...baskets].sort((a, b) => {
@@ -149,9 +134,7 @@ export default function App() {
 
   const displayedAlphas = isPremium ? alphaDogsList : alphaDogsList.slice(0, 2);
   const displayedBaskets = isPremium ? sortedBaskets : sortedBaskets.slice(0, 3);
-  const displayedEdges = isPremium ? filteredEdges : filteredEdges.slice(0, 3);
 
-  // Reusable EV Box Component
   const EVBox = ({ ev }) => {
     const isPositive = parseFloat(ev) > 0;
     return (
@@ -165,6 +148,12 @@ export default function App() {
       </div>
     );
   };
+
+  // Defense sorting logic
+  const topPaint = [...defense].sort((a, b) => b.paint - a.paint).slice(0, 5);
+  const topRebounds = [...defense].sort((a, b) => b.rebounds - a.rebounds).slice(0, 5);
+  const topAssists = [...defense].sort((a, b) => b.assists - a.assists).slice(0, 5);
+  const topThrees = [...defense].sort((a, b) => b.threes - a.threes).slice(0, 5);
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-slate-200 font-sans selection:bg-indigo-500/30">
@@ -210,8 +199,8 @@ export default function App() {
           <button onClick={() => setView('FirstBaskets')} className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${view === 'FirstBaskets' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
             <Trophy className="w-4 h-4" /> The Master Board
           </button>
-          <button onClick={() => setView('Edges')} className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${view === 'Edges' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
-            <Zap className="w-4 h-4" /> Live Edges
+          <button onClick={() => setView('Defense')} className={`flex-1 py-4 rounded-2xl border transition-all flex items-center justify-center gap-2 font-black italic uppercase tracking-widest text-xs ${view === 'Defense' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]' : 'bg-[#0f0f0f] border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+            <ShieldAlert className="w-4 h-4" /> Defensive Vulnerabilities
           </button>
         </div>
 
@@ -224,9 +213,6 @@ export default function App() {
                   <Flame className="text-orange-500" size={32} /> Alpha Dog Targets
                 </h2>
                 <p className="text-slate-500 font-medium tracking-tight">Players who mathematically dominate their team's early usage based on live odds.</p>
-              </div>
-              <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg">
-                <Clock className="w-3 h-3" /> Updated: {lastUpdated.toLocaleTimeString()}
               </div>
             </div>
 
@@ -253,7 +239,6 @@ export default function App() {
                         <div className="bg-white/5 p-3 rounded-xl text-center border border-white/5 flex flex-col justify-center">
                           <span className="block text-[9px] text-slate-500 uppercase font-bold tracking-widest mb-1">Odds</span>
                           <span className="text-xl font-black text-green-400 italic">{alpha.best_odds}</span>
-                          <span className="block text-[8px] text-slate-400 uppercase font-bold tracking-widest mt-1">{alpha.bookmaker}</span>
                         </div>
                         <div className="bg-indigo-600/10 p-3 rounded-xl text-center border border-indigo-500/20 flex flex-col justify-center">
                           <span className="block text-[9px] text-indigo-400 uppercase font-bold tracking-widest mb-1">Early Usage</span>
@@ -261,44 +246,28 @@ export default function App() {
                         </div>
                         <EVBox ev={alpha.einstein_ev} />
                       </div>
-
-                      <div className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/5">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Dominance Gap</span>
-                        <div className="text-right">
-                          <span className="text-lg font-black text-white italic">+{alpha.dominanceGap}%</span>
-                          <span className="text-[9px] text-slate-500 uppercase font-bold block">vs 2nd Option</span>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 ))
-              ) : loading ? (
-                <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-3xl">
-                  <Crown className="w-12 h-12 text-slate-700 mx-auto mb-4 animate-pulse" />
-                  <p className="text-slate-500 uppercase font-black tracking-widest text-sm">Calculating...</p>
-                </div>
               ) : (
-                <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-3xl bg-black/20">
+                <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-3xl">
                   <Crown className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-                  <p className="text-slate-300 uppercase font-black tracking-widest text-lg italic mb-2">No Alpha Dogs Qualify Today</p>
-                  <p className="text-slate-500 text-sm max-w-lg mx-auto font-medium">The math shows no player has a dominant usage gap over their teammates on tonight's slate.</p>
+                  <p className="text-slate-500 uppercase font-black tracking-widest text-sm">Calculating...</p>
                 </div>
               )}
             </div>
-
+            
             {!isPremium && alphaDogsList.length > 2 && (
-              <div className="mt-8 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center relative overflow-hidden">
-                <div className="relative z-20 flex flex-col items-center">
-                  <Lock className="text-indigo-500 mb-4" size={32} />
-                  <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {alphaDogsList.length - 2} More Alpha Dogs</h3>
-                  <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
-                </div>
+              <div className="mt-8 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center">
+                <Lock className="text-indigo-500 mx-auto mb-4" size={32} />
+                <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {alphaDogsList.length - 2} More Alpha Dogs</h3>
+                <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
               </div>
             )}
           </div>
         )}
 
-        {/* VIEW 2: FIRST BASKETS (MASTER BOARD) */}
+        {/* VIEW 2: FIRST BASKETS */}
         {view === 'FirstBaskets' && (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -307,13 +276,10 @@ export default function App() {
                   <Trophy className="text-indigo-500" /> First Basket Master Board
                 </h2>
                 <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
-                  <button onClick={() => setBasketSort('Game')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Game' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Game</button>
-                  <button onClick={() => setBasketSort('Grade')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Grade' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Grade</button>
                   <button onClick={() => setBasketSort('EV')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'EV' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By EV</button>
+                  <button onClick={() => setBasketSort('Grade')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Grade' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Grade</button>
+                  <button onClick={() => setBasketSort('Game')} className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${basketSort === 'Game' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-white'}`}>By Game</button>
                 </div>
-              </div>
-              <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg">
-                <Clock className="w-3 h-3" /> Updated: {lastUpdated.toLocaleTimeString()}
               </div>
             </div>
             
@@ -322,41 +288,37 @@ export default function App() {
                 displayedBaskets.map((basket, i) => {
                   const gradeInfo = getSniperGrade(basket.first_shot_prob);
                   return (
-                    <div key={i} className="bg-[#0f0f0f] border border-white/5 rounded-2xl p-5 relative overflow-hidden group hover:border-indigo-500/30 transition-all">
-                      <div className="absolute -right-4 -top-4 text-white/[0.02] group-hover:text-white/[0.05] transition-colors"><Target size={120} /></div>
+                    <div key={i} className="bg-[#0f0f0f] border border-white/5 rounded-2xl p-5 hover:border-indigo-500/30 transition-all">
+                      <div className="mb-4 pb-4 border-b border-white/5 flex justify-between items-start">
+                        <div>
+                          <h4 className="text-xl font-black italic text-white uppercase mb-1">{basket.player_name}</h4>
+                          <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{basket.game}</span>
+                        </div>
+                        <div className={`px-3 py-1.5 rounded-lg border flex flex-col items-center ${gradeInfo.color}`}>
+                          <span className="text-[8px] uppercase font-black tracking-widest opacity-80 mb-0.5">Grade</span>
+                          <span className="text-xl font-black italic leading-none">{gradeInfo.grade}</span>
+                        </div>
+                      </div>
                       
-                      <div className="relative z-10">
-                        <div className="mb-4 pb-4 border-b border-white/5 flex justify-between items-start">
-                          <div>
-                            <h4 className="text-xl font-black italic text-white uppercase mb-1">{basket.player_name}</h4>
-                            <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{basket.game}</span>
-                          </div>
-                          <div className={`px-3 py-1.5 rounded-lg border flex flex-col items-center ${gradeInfo.color}`}>
-                            <span className="text-[8px] uppercase font-black tracking-widest opacity-80 mb-0.5">Grade</span>
-                            <span className="text-xl font-black italic leading-none">{gradeInfo.grade}</span>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Best Market Odds</span>
+                          <div className="text-right">
+                             <span className="text-xl font-black text-green-400 italic">{basket.best_odds}</span>
+                             <p className="text-[8px] text-slate-500 uppercase font-bold">{basket.bookmaker}</p>
                           </div>
                         </div>
                         
-                        <div className="space-y-4">
-                          <div className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Best Market Odds</span>
-                            <div className="text-right">
-                               <span className="text-xl font-black text-green-400 italic">{basket.best_odds}</span>
-                               <p className="text-[8px] text-slate-500 uppercase font-bold">{basket.bookmaker}</p>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="bg-white/5 p-2 rounded-xl border border-white/5 text-center flex flex-col justify-center">
+                                <span className="block text-[8px] text-slate-500 uppercase font-bold tracking-widest mb-1">True Prob</span>
+                                <span className="text-sm font-black text-white">{basket.tip_win_prob}%</span>
                             </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-3 gap-2">
-                              <div className="bg-white/5 p-2 rounded-xl border border-white/5 text-center flex flex-col justify-center">
-                                  <span className="block text-[8px] text-slate-500 uppercase font-bold tracking-widest mb-1">True Prob</span>
-                                  <span className="text-sm font-black text-white">{basket.tip_win_prob}%</span>
-                              </div>
-                              <div className="bg-indigo-600/10 p-2 rounded-xl border border-indigo-500/20 text-center flex flex-col justify-center">
-                                  <span className="block text-[8px] text-indigo-400 uppercase font-bold tracking-widest mb-1">Usage</span>
-                                  <span className="text-sm font-black text-indigo-400">{basket.first_shot_prob}%</span>
-                              </div>
-                              <EVBox ev={basket.einstein_ev} />
-                          </div>
+                            <div className="bg-indigo-600/10 p-2 rounded-xl border border-indigo-500/20 text-center flex flex-col justify-center">
+                                <span className="block text-[8px] text-indigo-400 uppercase font-bold tracking-widest mb-1">Usage</span>
+                                <span className="text-sm font-black text-indigo-400">{basket.first_shot_prob}%</span>
+                            </div>
+                            <EVBox ev={basket.einstein_ev} />
                         </div>
                       </div>
                     </div>
@@ -371,74 +333,112 @@ export default function App() {
             </div>
 
             {!isPremium && baskets.length > 3 && (
-              <div className="mt-8 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center relative overflow-hidden">
-                <div className="relative z-20 flex flex-col items-center">
-                  <Lock className="text-indigo-500 mb-4" size={32} />
-                  <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {baskets.length - 3} More First Basket Targets</h3>
-                  <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
-                </div>
+              <div className="mt-8 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center">
+                <Lock className="text-indigo-500 mx-auto mb-4" size={32} />
+                <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {baskets.length - 3} More First Basket Targets</h3>
+                <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
               </div>
             )}
           </div>
         )}
 
-        {/* VIEW 3: LIVE EDGES (Legacy) */}
-        {view === 'Edges' && (
-          <div className="opacity-90">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex bg-white/5 p-1 rounded-xl">
-                {['All', 'Points', 'Rebounds', 'Assists'].map((tab) => (
-                  <button key={tab} onClick={() => setFilter(tab)} className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${filter === tab ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>
-                    {tab}
-                  </button>
-                ))}
+        {/* VIEW 3: DEFENSIVE VULNERABILITIES */}
+        {view === 'Defense' && (
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+              <div>
+                <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 flex items-center gap-3">
+                  <Swords className="text-red-500" size={32} /> Matchup Intelligence Matrix
+                </h2>
+                <p className="text-slate-500 font-medium tracking-tight">The absolute worst defenses in the NBA. Use this to target specific player props.</p>
               </div>
             </div>
 
-            <div className="space-y-4">
-              {displayedEdges.length > 0 ? (
-                displayedEdges.map((edge) => (
-                  <div key={edge.id} className="bg-[#0f0f0f] border border-white/5 rounded-2xl p-5">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1">
-                          <h3 className="text-lg font-bold text-white">{edge.player_name}</h3>
-                          <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 rounded text-[10px] font-black uppercase">{edge.market}</span>
-                        </div>
-                        <p className="text-sm text-slate-500">{edge.game}</p>
+            {defense.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                {/* Paint Vulnerability */}
+                <div className="bg-[#0f0f0f] border border-red-500/20 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                  <div className="absolute right-0 top-0 opacity-[0.02] transform translate-x-4 -translate-y-4"><Activity size={180} /></div>
+                  <h3 className="text-xl font-black text-white uppercase italic tracking-widest mb-6 flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span> Paint Defense (Worst)
+                  </h3>
+                  <div className="space-y-3 relative z-10">
+                    {topPaint.map((team, i) => (
+                      <div key={i} className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                        <span className="font-bold text-slate-300 flex items-center gap-3"><span className="text-red-500 font-black">#{i+1}</span> {team.team}</span>
+                        <span className="text-red-400 font-black italic">{team.paint} <span className="text-[10px] text-slate-500 not-italic uppercase">pts allowed</span></span>
                       </div>
-
-                      <div className="flex items-center gap-8">
-                        <div className="text-center">
-                          <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Low Line</p>
-                          <p className="text-xl font-black text-white">{edge.low_line} <span className="text-xs font-normal text-slate-500">{edge.low_book}</span></p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">High Line</p>
-                          <p className="text-xl font-black text-white">{edge.high_line} <span className="text-xs font-normal text-slate-500">{edge.high_book}</span></p>
-                        </div>
-                        <div className="bg-white/5 border border-white/10 px-6 py-2 rounded-xl text-center">
-                          <p className="text-[10px] text-slate-400 uppercase font-black">Gap</p>
-                          <p className="text-xl font-black text-white">+{edge.edge_size}</p>
-                        </div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <div className="py-20 text-center border border-dashed border-white/10 rounded-3xl">
-                  <p className="text-slate-500 uppercase font-bold tracking-widest text-sm">No edges found.</p>
+                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-6 text-center">🎯 Target: Centers & Power Forwards Over Points</p>
                 </div>
-              )}
-            </div>
 
-            {!isPremium && filteredEdges.length > 3 && (
-              <div className="mt-4 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center relative overflow-hidden">
-                <div className="relative z-20 flex flex-col items-center">
-                  <Lock className="text-indigo-500 mb-4" size={32} />
-                  <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock {filteredEdges.length - 3} More Market Edges</h3>
-                  <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
+                {/* 3PT Vulnerability */}
+                <div className="bg-[#0f0f0f] border border-orange-500/20 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                  <div className="absolute right-0 top-0 opacity-[0.02] transform translate-x-4 -translate-y-4"><Activity size={180} /></div>
+                  <h3 className="text-xl font-black text-white uppercase italic tracking-widest mb-6 flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-orange-500"></span> 3PT Defense (Worst)
+                  </h3>
+                  <div className="space-y-3 relative z-10">
+                    {topThrees.map((team, i) => (
+                      <div key={i} className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                        <span className="font-bold text-slate-300 flex items-center gap-3"><span className="text-orange-500 font-black">#{i+1}</span> {team.team}</span>
+                        <span className="text-orange-400 font-black italic">{team.threes}% <span className="text-[10px] text-slate-500 not-italic uppercase">allowed</span></span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-6 text-center">🎯 Target: Shooters Over 3PT Made</p>
                 </div>
+
+                {/* Rebound Vulnerability */}
+                <div className="bg-[#0f0f0f] border border-blue-500/20 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                  <div className="absolute right-0 top-0 opacity-[0.02] transform translate-x-4 -translate-y-4"><Activity size={180} /></div>
+                  <h3 className="text-xl font-black text-white uppercase italic tracking-widest mb-6 flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-blue-500"></span> Rebounding (Worst)
+                  </h3>
+                  <div className="space-y-3 relative z-10">
+                    {topRebounds.map((team, i) => (
+                      <div key={i} className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                        <span className="font-bold text-slate-300 flex items-center gap-3"><span className="text-blue-500 font-black">#{i+1}</span> {team.team}</span>
+                        <span className="text-blue-400 font-black italic">{team.rebounds} <span className="text-[10px] text-slate-500 not-italic uppercase">allowed</span></span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-6 text-center">🎯 Target: Centers Over Rebounds</p>
+                </div>
+
+                {/* Assist Vulnerability */}
+                <div className="bg-[#0f0f0f] border border-emerald-500/20 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                  <div className="absolute right-0 top-0 opacity-[0.02] transform translate-x-4 -translate-y-4"><Activity size={180} /></div>
+                  <h3 className="text-xl font-black text-white uppercase italic tracking-widest mb-6 flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-emerald-500"></span> Assist Defense (Worst)
+                  </h3>
+                  <div className="space-y-3 relative z-10">
+                    {topAssists.map((team, i) => (
+                      <div key={i} className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                        <span className="font-bold text-slate-300 flex items-center gap-3"><span className="text-emerald-500 font-black">#{i+1}</span> {team.team}</span>
+                        <span className="text-emerald-400 font-black italic">{team.assists} <span className="text-[10px] text-slate-500 not-italic uppercase">allowed</span></span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-6 text-center">🎯 Target: Point Guards Over Assists</p>
+                </div>
+
+              </div>
+            ) : (
+              <div className="py-20 text-center border border-dashed border-white/10 rounded-3xl">
+                <Activity className="w-12 h-12 text-slate-700 mx-auto mb-4 animate-pulse" />
+                <p className="text-slate-500 uppercase font-black tracking-widest text-sm">Loading Matchup Intelligence...</p>
+              </div>
+            )}
+
+            {!isPremium && (
+              <div className="mt-8 bg-gradient-to-r from-indigo-900/40 to-[#0a0a0a] border border-white/5 rounded-3xl p-12 text-center">
+                <Lock className="text-indigo-500 mx-auto mb-4" size={32} />
+                <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Unlock Full Market Matchups</h3>
+                <p className="text-slate-400 font-medium mb-6 max-w-lg mx-auto">Knowing who bleeds points in the paint is how sharps beat the books. Upgrade to see the full data.</p>
+                <button onClick={() => window.location.href = whopLink} className="px-10 py-4 bg-indigo-600 text-white rounded-xl font-black italic uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-xl">Upgrade to PropSniper Pro</button>
               </div>
             )}
           </div>
